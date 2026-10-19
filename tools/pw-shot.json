@@ -1,0 +1,9 @@
+{
+  "url": "https://localhost:8081/?demo=rabbit",
+  "steps": [
+    {"wait": 800, "eval": "localStorage.clear()"},
+    {"eval": "location.reload()"},
+    {"wait": 9000, "eval": "document.getElementById('landing').classList.add('hidden')"},
+    {"wait": 1200, "shot": "/private/tmp/claude-501/-Users-swapnajitpatra-Documents-Experiment/8c39a084-ca7a-42e3-a899-558209da0277/scratchpad/pw3.png"}
+  ]
+}
