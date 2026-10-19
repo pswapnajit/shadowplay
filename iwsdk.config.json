@@ -35,13 +35,11 @@
     },
     "features": {
       "locomotion": false,
-      "grabbing": true,
+      "grabbing": false,
       "physics": false,
       "sceneUnderstanding": true,
       "environmentRaycast": false,
-      "spatialUI": {
-        "kit": "horizon"
-      }
+      "spatialUI": false
     }
   },
   "dev": {

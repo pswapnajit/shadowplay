@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { fileURLToPath } from 'node:url';
 import { iwsdkDev } from '@iwsdk/vite-plugin-dev';
 import { defineConfig } from 'vite';
 
@@ -22,6 +23,10 @@ export default defineConfig({
   // (three@0.185 vs app super-three@0.181). Duplicate Component classes break
   // instanceof checks → "Only pmndrs/uikit components can be added as children".
   resolve: {
+    alias: {
+      // see src/stubs/uikit-lucide.ts
+      '@pmndrs/uikit-lucide': fileURLToPath(new URL('./src/stubs/uikit-lucide.ts', import.meta.url)),
+    },
     dedupe: [
       'three',
       '@pmndrs/uikit',
