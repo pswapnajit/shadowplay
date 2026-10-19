@@ -19,7 +19,7 @@ export interface HandSpec {
   wrist: V3;
 }
 
-export type Motion = 'chatter' | 'hop' | 'trot' | 'glide' | 'snap' | 'flutter';
+export type Motion = 'chatter' | 'hop' | 'trot' | 'glide' | 'snap' | 'flutter' | 'howl' | 'walk';
 
 export interface CreatureDef {
   id: string;
@@ -58,6 +58,8 @@ function flat(side: Side, wrist: V3, fingerHint: V3, palmFaces: 'lamp' | 'wall',
   const dorsal = palmFaces === 'lamp' ? r : v3.scale(r, -1);
   return { side, pose, finger, dorsal, wrist };
 }
+
+const n2 = (v: V3): V3 => v3.norm(v);
 
 const pose = (f: (p: HandPose) => void): HandPose => {
   const p = clonePose(OPEN_HAND);
@@ -102,6 +104,36 @@ const dogOpen = pose((p) => {
   together(p);
   p.pinky = { mcp: 20, pip: 0, dip: 0, abd: 28 };
   p.thumb = { flex: -45, abd: 0, mcp: 0, ip: 0 };
+});
+
+// --- wolf: the dog, snout raised to the moon, jaw open ---------------------
+const wolf = pose((p) => {
+  together(p);
+  p.pinky = { mcp: 22, pip: 5, dip: 0, abd: 30 };
+  p.thumb = { flex: -40, abd: 5, mcp: 0, ip: 0 };
+});
+
+// --- fox: the "quiet coyote" — thumb meets the middle fingers, index and
+// little finger up as ears -------------------------------------------------
+const fox = pose((p) => {
+  p.index = { mcp: 0, pip: 0, dip: 0, abd: 6 };
+  p.pinky = { mcp: 0, pip: 0, dip: 0, abd: 14 };
+  p.middle = { mcp: 55, pip: 70, dip: 25, abd: 0 };
+  p.ring = { mcp: 55, pip: 70, dip: 25, abd: 0 };
+  p.thumb = { flex: 45, abd: 45, mcp: 15, ip: 10 };
+});
+
+// --- deer: one hand is the head, the other spreads into antlers ------------
+const deerHead = pose((p) => {
+  together(p);
+  p.thumb = { flex: 20, abd: -5, mcp: 5, ip: 0 };
+});
+const antlers = pose((p) => {
+  p.index = { mcp: 0, pip: 0, dip: 0, abd: 20 };
+  p.middle = { mcp: 0, pip: 0, dip: 0, abd: 8 };
+  p.ring = { mcp: 0, pip: 0, dip: 0, abd: 16 };
+  p.pinky = { mcp: 0, pip: 0, dip: 0, abd: 28 };
+  p.thumb = { flex: -40, abd: 5, mcp: 0, ip: 0 };
 });
 
 // --- swan: your forearm is the neck, your bent hand the head ----------------
@@ -160,6 +192,24 @@ export const CREATURES: CreatureDef[] = [
     difficulty: 2,
   },
   {
+    id: 'wolf',
+    name: 'Wolf',
+    hint: 'Make the dog, then tip its nose up to the sky and drop the jaw: howl!',
+    hands: [flat('right', [0.06, -0.12, -0.4], [-0.55, 0.83, 0], 'lamp', wolf)],
+    motion: 'howl',
+    song: [0, 4, 7, 9, 7, 4],
+    difficulty: 2,
+  },
+  {
+    id: 'fox',
+    name: 'Fox',
+    hint: 'Touch your thumb to your middle and ring fingers; lift your index and little finger as ears.',
+    hands: [flat('right', [0.02, -0.14, -0.4], n2([-0.25, 1, 0]), 'wall', fox)],
+    motion: 'trot',
+    song: [7, 9, 7, 4, 5, 4],
+    difficulty: 2,
+  },
+  {
     id: 'swan',
     name: 'Swan',
     hint: 'Raise your forearm, then bend your hand forward so the fingers point down like a beak.',
@@ -178,6 +228,18 @@ export const CREATURES: CreatureDef[] = [
     ],
     motion: 'snap',
     song: [0, 1, 0, 4, 3, 0],
+    difficulty: 3,
+  },
+  {
+    id: 'deer',
+    name: 'Deer',
+    hint: 'One hand on its side is the head; hold the other above it, fingers spread wide as antlers.',
+    hands: [
+      profile('left', [-0.03, -0.1, -0.4], [1, -0.05, 0], [0, 1, 0], deerHead),
+      flat('right', [0.02, -0.03, -0.42], [-0.12, 1, 0], 'lamp', antlers),
+    ],
+    motion: 'walk',
+    song: [9, 7, 9, 4, 2, 4],
     difficulty: 3,
   },
   {

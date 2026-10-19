@@ -26,8 +26,11 @@ Shadowplay is a hands-first, seated mixed-reality game for Meta Quest, built on 
 | Chatterbird | Hand on its side, fingers together on top, thumb underneath. Open and close the beak to make it chirp. | 1 |
 | Rabbit | A loose fist with two fingers up in a V. | 1 |
 | Dog | Palm towards you, fingers across, thumb up for an ear. Drop your little finger to bark. | 1 |
+| Wolf | The dog, nose tipped up to the sky. Drop the jaw to howl. | 1 |
+| Fox | Thumb touching your middle and ring fingers; index and little finger up as ears. | 1 |
 | Swan | Forearm up as the neck, hand bent forward as the head and beak. | 1 |
 | Crocodile | Two flat hands, one on top of the other. Open your wrists to snap. | 2 |
+| Deer | One hand on its side is the head; the other, fingers spread, is the antlers. | 2 |
 | Butterfly | Cross your wrists, hook your thumbs, spread your fingers. | 2 |
 
 ## Accessibility and comfort
@@ -36,7 +39,7 @@ Shadowplay is a hands-first, seated mixed-reality game for Meta Quest, built on 
 - **Hands only, no text required:** a ghost hand demonstrates every pose. Hints appear only if you seem stuck.
 - **Adaptive assist:** if you're close but stuck, matching gently becomes more forgiving.
 - **Thumbs-up to skip:** hold a thumbs-up to move past any creature; it waits for you in free play.
-- **One-handed by default:** four of the six creatures need just one hand, and either hand works (shapes are matched mirror-invariant).
+- **One-handed by default:** six of the nine creatures need just one hand, and either hand works (shapes are matched mirror-invariant).
 - **Short sessions:** each creature takes under a minute, and progress saves automatically.
 - **Laptop mode:** the full game also runs with a webcam, for anyone without a headset.
 

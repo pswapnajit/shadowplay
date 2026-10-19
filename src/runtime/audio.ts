@@ -181,6 +181,38 @@ export class AudioEngine {
     this.noiseSweep(300, 1800, 1.2, 0.1);
   }
 
+  /** A soft wolf howl: a sine that rises, wavers and falls, through a vowel-ish filter. */
+  howl(gain = 0.6): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(330, t0);
+    o.frequency.linearRampToValueAtTime(560, t0 + 0.5);
+    o.frequency.linearRampToValueAtTime(600, t0 + 1.2);
+    o.frequency.linearRampToValueAtTime(420, t0 + 1.9);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5.5;
+    const vg = ctx.createGain();
+    vg.gain.value = 9;
+    vib.connect(vg).connect(o.frequency);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 900;
+    f.Q.value = 0.9;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(0.18 * gain, t0 + 0.3);
+    g.gain.linearRampToValueAtTime(0.14 * gain, t0 + 1.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.1);
+    o.connect(f).connect(g).connect(this.master!);
+    o.start(t0);
+    vib.start(t0);
+    o.stop(t0 + 2.2);
+    vib.stop(t0 + 2.2);
+  }
+
   /** Short sound effects for talking shadows. */
   chirp(pitch = 1): void {
     const ctx = this.ctx;

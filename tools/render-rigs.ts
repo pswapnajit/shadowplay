@@ -5,7 +5,7 @@ import { Canvas } from './png.js';
 
 const OUT = new URL('./out/', import.meta.url).pathname;
 const P = 220;
-const names = Object.keys(RIGS);
+const names = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(RIGS);
 const frames = [0, 0.11, 0.23, 0.37];
 const sheet = new Canvas(P * frames.length, P * names.length, [246, 236, 214]);
 const segs = new Float32Array(400 * 8);

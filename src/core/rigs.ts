@@ -201,10 +201,78 @@ export const RIGS: Record<string, RigFn> = {
       w.cap(0, -0.005, 0.01, side * 0.055 * sx, -0.045, 0.03);
     }
   },
+  wolf(w, t, action) {
+    // sitting, head raised to howl; `action` lifts the snout and opens the jaw
+    const breathe = Math.sin(t * 2) * 0.004;
+    w.disc(-0.03, 0.065, 0.065);
+    w.cap(-0.03, 0.07, 0.06, 0.07, 0.17 + breathe, 0.05);
+    w.cap(0.07, 0.15, 0.02, 0.085, 0.005, 0.014);
+    w.cap(0.05, 0.14, 0.018, 0.06, 0.005, 0.013);
+    w.cap(0.085, 0.005, 0.014, 0.115, 0.0, 0.01);
+    w.cap(-0.08, 0.02, 0.025, -0.2, 0.015, 0.01);
+    const hx = 0.1;
+    const hy = 0.25 + breathe;
+    w.disc(hx, hy, 0.04);
+    const ang = 0.6 + action * 0.45;
+    w.cap(hx + 0.01, hy + 0.01, 0.028, hx + Math.cos(ang) * 0.08, hy + Math.sin(ang) * 0.08, 0.013);
+    const ja = ang - 0.25 - action * 0.3;
+    w.cap(hx + 0.01, hy - 0.01, 0.02, hx + Math.cos(ja) * 0.065, hy + Math.sin(ja) * 0.065, 0.009);
+    w.cap(hx - 0.02, hy + 0.03, 0.016, hx - 0.045, hy + 0.085, 0.006);
+    w.cap(hx, hy + 0.035, 0.014, hx - 0.012, hy + 0.088, 0.005);
+  },
+
+  fox(w, t, action) {
+    const sp = t * 10;
+    const y = 0.12 + Math.abs(Math.sin(sp)) * 0.01;
+    w.cap(-0.1, y, 0.04, 0.07, y + 0.01, 0.042);
+    w.disc(0.11, y + 0.06, 0.036);
+    w.cap(0.12, y + 0.055, 0.024, 0.205, y + 0.04, 0.007);
+    w.cap(0.09, y + 0.085, 0.016, 0.075, y + 0.155, 0.004);
+    w.cap(0.115, y + 0.085, 0.015, 0.11, y + 0.155, 0.004);
+    // a big bushy tail, swishing
+    const sw = Math.sin(t * 5) * 0.12 + action * 0.25;
+    for (let i = 0; i < 4; i++) {
+      const a = 2.65 + sw + i * 0.11;
+      w.cap(-0.12, y + 0.01, 0.024, -0.12 + Math.cos(a) * 0.18, y + 0.01 + Math.sin(a) * 0.18, 0.03 - i * 0.005);
+    }
+    const L = 0.12;
+    leg(w, -0.09, y - 0.01, L, Math.sin(sp) * 0.55, 0.018, 0.008);
+    leg(w, -0.06, y - 0.01, L, Math.sin(sp + Math.PI) * 0.55, 0.016, 0.008, 0.4);
+    leg(w, 0.05, y - 0.01, L, Math.sin(sp + Math.PI) * 0.55, 0.016, 0.008, 0.3);
+    leg(w, 0.075, y - 0.01, L, Math.sin(sp) * 0.55, 0.015, 0.008, 0.3);
+  },
+
+  deer(w, t, action) {
+    const sp = t * 6;
+    const y = 0.22 + Math.abs(Math.sin(sp)) * 0.006;
+    const nod = action * 0.03;
+    w.cap(-0.11, y, 0.05, 0.08, y + 0.01, 0.052);
+    w.cap(0.08, y + 0.02, 0.03, 0.13, y + 0.12 - nod, 0.022);
+    w.disc(0.14, y + 0.14 - nod, 0.03);
+    w.cap(0.15, y + 0.135 - nod, 0.02, 0.21, y + 0.115 - nod, 0.012);
+    w.cap(0.12, y + 0.165 - nod, 0.01, 0.095, y + 0.2 - nod, 0.005);
+    // branching antlers
+    const ax = 0.13;
+    const ay = y + 0.165 - nod;
+    w.cap(ax, ay, 0.007, ax - 0.03, ay + 0.1, 0.004);
+    w.cap(ax - 0.015, ay + 0.05, 0.005, ax + 0.02, ay + 0.08, 0.003);
+    w.cap(ax - 0.025, ay + 0.08, 0.004, ax - 0.07, ay + 0.12, 0.003);
+    w.cap(ax + 0.01, ay, 0.006, ax + 0.04, ay + 0.09, 0.004);
+    w.cap(ax + 0.03, ay + 0.06, 0.004, ax + 0.07, ay + 0.08, 0.003);
+    w.disc(-0.15, y + 0.03, 0.015);
+    const L = 0.21;
+    leg(w, -0.1, y - 0.02, L, Math.sin(sp) * 0.4, 0.016, 0.007);
+    leg(w, -0.075, y - 0.02, L, Math.sin(sp + Math.PI) * 0.4, 0.014, 0.007, 0.4);
+    leg(w, 0.06, y - 0.02, L, Math.sin(sp + Math.PI) * 0.4, 0.014, 0.007, 0.3);
+    leg(w, 0.08, y - 0.02, L, Math.sin(sp) * 0.4, 0.013, 0.007, 0.3);
+  },
 };
 
 /** Approximate local bounding height of each rig, used to size creatures. */
 export const RIG_HEIGHT: Record<string, number> = {
+  wolf: 0.34,
+  fox: 0.24,
+  deer: 0.48,
   bird: 0.2,
   rabbit: 0.3,
   dog: 0.3,

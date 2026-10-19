@@ -41,7 +41,7 @@ interface Living {
 
 const SAVE_KEY = 'shadowplay.v1';
 const HOME_Y = -0.6;
-const REST_T: Record<string, number> = { bird: 0.1, rabbit: 0, dog: 0, swan: 0, crocodile: 0, butterfly: 0 };
+const REST_T: Record<string, number> = { bird: 0.1, rabbit: 0, dog: 0, wolf: 0, fox: 0, swan: 0, crocodile: 0, deer: 0, butterfly: 0 };
 
 export class GameSystem extends createSystem({}) {
   theatre: TheatreSystem | null = null;
@@ -356,6 +356,7 @@ export class GameSystem extends createSystem({}) {
     this.flash = 1;
     audio.awaken();
     audio.song(def.song, 0.15, Math.max(-1, Math.min(1, m.frame.cx)));
+    if (def.id === 'wolf') audio.howl(0.7);
     if (!visitor) {
       this.collected.add(def.id);
       this.save();
@@ -388,12 +389,14 @@ export class GameSystem extends createSystem({}) {
     };
   }
 
+  /** Shelf positions along the bottom rim of the light pool (up to nine creatures). */
   private homeOf(def: CreatureDef, slot?: number): [number, number, number] {
-    const i = slot ?? [...this.collected].indexOf(def.id);
-    const x = -0.55 + (Math.max(0, i) % 6) * 0.22;
+    const i = Math.max(0, slot ?? [...this.collected].indexOf(def.id)) % 9;
+    const x = -0.76 + i * 0.19;
+    const y = HOME_Y + 0.22 * Math.pow(x / 0.8, 2); // the rim curves up at the sides
     const lift = def.id === 'butterfly' ? 0.16 : def.id === 'bird' ? 0.06 : 0;
-    const s = def.id === 'crocodile' ? 0.38 : 0.42;
-    return [x, HOME_Y + lift, s];
+    const s = def.id === 'deer' ? 0.3 : def.id === 'crocodile' ? 0.32 : 0.38;
+    return [x, y + lift, s];
   }
 
   private animate(dt: number, _time: number): void {
@@ -450,6 +453,7 @@ export class GameSystem extends createSystem({}) {
           if (lv.nextAction < 0) {
             lv.action = 1;
             lv.nextAction = 4 + Math.random() * 6;
+            if (lv.def.id === 'wolf' && Math.random() < 0.35) audio.howl(0.35);
           }
           lv.action = Math.max(0, lv.action - dt * 1.5);
           break;
@@ -499,7 +503,7 @@ export class GameSystem extends createSystem({}) {
     const size = Math.max(0.12, d(J.WRIST, J.MIDDLE_TIP));
     let open = false;
     if (def.id === 'bird') open = d(J.THUMB_TIP, J.INDEX_TIP) / size > 0.32;
-    else if (def.id === 'dog') open = d(J.PINKY_TIP, J.RING_TIP) / size > 0.2;
+    else if (def.id === 'dog' || def.id === 'wolf') open = d(J.PINKY_TIP, J.RING_TIP) / size > 0.2;
     else if (def.id === 'crocodile' && state.hands[0].tracked && state.hands[1].tracked) {
       const L = state.hands[0].joints;
       const R = state.hands[1].joints;
@@ -509,6 +513,7 @@ export class GameSystem extends createSystem({}) {
     if (open && !this.mouthOpen) {
       if (def.id === 'bird') audio.chirp(0.9 + Math.random() * 0.2);
       else if (def.id === 'dog') audio.bark();
+      else if (def.id === 'wolf') audio.howl(0.8);
       else audio.snap();
     }
     this.mouthOpen = open;

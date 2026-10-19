@@ -21,7 +21,7 @@ Everyone has made a rabbit on a bedroom wall with a torch behind them. It's one 
 
 When you enter, a small lantern appears in front of you, glides over your shoulder, and your real wall lights up in a warm pool while the rest of the room dims. A golden ghost hand shows you the first shape. Copy it and your shadow appears on the wall, cast by your tracked hands. An outline shows the creature you're aiming for and glows brighter as you get closer. Hold the match for a moment and the shadow wakes up: a flash, a short melody, and a living shadow creature that hops, trots, glides or flutters across your wall to a shelf where your collection lives.
 
-Some shadows talk back. Open the Chatterbird's beak and it chirps; drop the dog's jaw and it barks. Six creatures (four one-handed, two two-handed) lead into free play, where any shape you've learned summons its creature again. Your menagerie is saved, so the creatures are waiting on your wall next time.
+Some shadows talk back. Open the Chatterbird's beak and it chirps; drop the dog's jaw and it barks; tip it to the sky and it's a wolf that howls. Nine creatures (six one-handed, three two-handed) lead into free play, where any shape you've learned summons its creature again. Your menagerie is saved, so the creatures are waiting on your wall next time.
 
 ## How we built it
 
