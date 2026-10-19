@@ -38,7 +38,6 @@ export class WebcamHands {
   video: HTMLVideoElement | null = null;
   private landmarker: HandLandmarker | null = null;
   private lastVideoTime = -1;
-  private raf = 0;
   private readonly smooth = [new Float32Array(JOINT_COUNT * 3), new Float32Array(JOINT_COUNT * 3)];
   private readonly seen = [0, 0];
   onStatus: (s: WebcamStatus, detail?: string) => void = () => {};
@@ -72,7 +71,6 @@ export class WebcamHands {
       externalHands.active = true;
       state.handSource = 'webcam';
       this.set('running');
-      this.loop();
     } catch (err) {
       const name = (err as { name?: string }).name;
       this.set(name === 'NotAllowedError' ? 'denied' : 'error', String(err));
@@ -80,7 +78,6 @@ export class WebcamHands {
   }
 
   stop(): void {
-    cancelAnimationFrame(this.raf);
     const stream = this.video?.srcObject as MediaStream | null;
     stream?.getTracks().forEach((t) => t.stop());
     this.video = null;
@@ -95,8 +92,12 @@ export class WebcamHands {
     this.onStatus(s, detail);
   }
 
-  private loop = (): void => {
-    this.raf = requestAnimationFrame(this.loop);
+  /**
+   * Runs detection on the newest video frame. Called from the game loop (not
+   * window.requestAnimationFrame, which pauses during an immersive session).
+   */
+  tick(): void {
+    if (this.status !== 'running') return;
     const video = this.video;
     const lm = this.landmarker;
     if (!video || !lm || video.readyState < 2) return;
@@ -117,7 +118,7 @@ export class WebcamHands {
       if (got[s]) this.seen[s] = 0;
       else if (++this.seen[s] > 6) state.hands[s].tracked = false; // brief dropouts are bridged
     }
-  };
+  }
 
   /**
    * Places a detected hand in front of the virtual puppeteer. Image position

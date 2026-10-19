@@ -61,6 +61,15 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   }
 
   setOnLanternLit(() => audio.lanternLit());
+  // Webcam hand tracking runs inside the frame loop so it keeps going in XR.
+  world.registerSystem(
+    class WebcamTick extends createSystem({}) {
+      update(): void {
+        webcam.tick();
+      }
+    },
+    { priority: 80 },
+  );
 
   // --- landing page -------------------------------------------------------
   const landing = document.getElementById('landing')!;
