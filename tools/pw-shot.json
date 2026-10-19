@@ -1,1 +1,0 @@
-{ "steps": [ {"eval": "(() => { const s = window.shadowplay.state; return {segs: s.handSegCount, mag: +s.magnification.toFixed(2), lamp: s.stage.lamp.map(v=>+v.toFixed(2)), head: s.head.position.map(v=>+v.toFixed(2)), phase: window.shadowplay.game.phase, iou: +window.shadowplay.game.iouSmooth.toFixed(2)}; })()"} ] }

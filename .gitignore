@@ -46,3 +46,8 @@ pids/
 
 # local tooling output
 tools/out/
+
+# machine-specific tool configs
+opencode.json
+tools/pw-shot.json
+tools/pw-probe.mjs
