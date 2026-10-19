@@ -9,7 +9,7 @@ import { audio } from './runtime/audio.js';
 import { DemoHandsSystem } from './runtime/demo-hands.js';
 import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
-import { ShadowDrawSystem, TheatreSystem } from './runtime/theatre.js';
+import { setOnLanternLit, ShadowDrawSystem, TheatreSystem } from './runtime/theatre.js';
 import { webcam } from './runtime/webcam.js';
 
 World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
@@ -59,6 +59,8 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
     const id = params.get('demo') || 'bird';
     demo.perform(CREATURE_BY_ID[id] ?? CREATURES[0]);
   }
+
+  setOnLanternLit(() => audio.lanternLit());
 
   // --- landing page -------------------------------------------------------
   const landing = document.getElementById('landing')!;

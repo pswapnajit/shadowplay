@@ -79,6 +79,17 @@ export class TheatreSystem extends createSystem({
   private visualsHidden = false;
   /** 0..1, fades the room dimmer in when the show starts. */
   dim = 0;
+  /** 0..1 progress of the lantern floating to its place over the shoulder. */
+  arrive = 1;
+  private arriveFrom: V3 = [0, 0, 0];
+  private arriveVia: V3 = [0, 0, 0];
+  private lampAt: V3 = [0, 0, 0];
+  private litSoundPlayed = true;
+  /** Head position when the theatre was placed; big drifts re-place it. */
+  private placedHead: V3 = [0, 0, 0];
+  private driftT = 0;
+  /** Where the lantern is gliding to after a re-placement. */
+  private lampGoal: V3 | null = null;
 
   init(): void {
     this.shadows = new ShadowRenderer();
@@ -199,6 +210,8 @@ export class TheatreSystem extends createSystem({
           this.placedAt = -1;
           this.placedReal = false;
           this.sessionStart = this.time;
+          this.arrive = 0; // the lantern makes an entrance in every new session
+          this.litSoundPlayed = false;
           this.visualsHidden = false;
           this.jointSpaces.clear();
           state.virtualWall = false;
@@ -217,14 +230,54 @@ export class TheatreSystem extends createSystem({
   update(delta: number, time: number): void {
     this.time = time;
     this.updateHead();
+    // If the player shifts seats or stands up, bring the theatre with them.
+    const H = state.head.position;
+    const drift = Math.hypot(H[0] - this.placedHead[0], H[1] - this.placedHead[1], H[2] - this.placedHead[2]);
+    this.driftT = state.stage && drift > 0.3 ? this.driftT + delta : 0;
+    if (this.driftT > 1.2) {
+      this.driftT = 0;
+      this.placedAt = -1;
+    }
     if (this.placedAt < 0) this.place();
+    if (this.lampGoal && state.stage) {
+      const L = state.stage.lamp;
+      const k = Math.min(1, delta * 2.5);
+      L[0] += (this.lampGoal[0] - L[0]) * k;
+      L[1] += (this.lampGoal[1] - L[1]) * k;
+      L[2] += (this.lampGoal[2] - L[2]) * k;
+      if (this.arrive >= 1) this.lantern.position.set(L[0], L[1], L[2]);
+      if (Math.hypot(this.lampGoal[0] - L[0], this.lampGoal[1] - L[1], this.lampGoal[2] - L[2]) < 0.002) this.lampGoal = null;
+    }
     if (!externalHands.active) this.readXRHands();
     this.buildHandSegments();
+
+    // The lantern's entrance: it appears in front of the player, then
+    // glides over their shoulder, and the wall lights up as it settles.
+    if (this.arrive < 1 && state.stage) {
+      this.arrive = Math.min(1, this.arrive + delta / 2.8);
+      const t = this.arrive;
+      const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      const a = this.arriveFrom;
+      const b = this.arriveVia;
+      const c = this.lampAt;
+      const u = 1 - e;
+      this.lantern.position.set(
+        u * u * a[0] + 2 * u * e * b[0] + e * e * c[0],
+        u * u * a[1] + 2 * u * e * b[1] + e * e * c[1],
+        u * u * a[2] + 2 * u * e * b[2] + e * e * c[2],
+      );
+      if (t >= 1 && !this.litSoundPlayed) {
+        this.litSoundPlayed = true;
+        onLanternLit?.();
+      }
+    }
+    const lit = smooth(0.55, 1, this.arrive);
+    this.shadows.wallMat.uniforms.uPool.value.w = lit;
 
     // Theatre visuals.
     const showing = state.stage !== null;
     this.shadows.wall.visible = showing;
-    const dimTarget = showing && !state.virtualWall ? 0.42 : 0;
+    const dimTarget = showing && !state.virtualWall ? 0.42 * lit : 0;
     this.dim += (dimTarget - this.dim) * Math.min(1, delta * 0.8);
     (this.dimmer.material as MeshBasicMaterial).opacity = this.dim;
     this.dimmer.position.set(state.head.position[0], state.head.position[1], state.head.position[2]);
@@ -235,7 +288,7 @@ export class TheatreSystem extends createSystem({
     (this.lanternGlow.material as ShaderMaterial).uniforms.uTime.value = time;
     const bm = this.beam.material as ShaderMaterial;
     bm.uniforms.uTime.value = time;
-    bm.uniforms.uAlpha.value = this.dim / 0.42;
+    bm.uniforms.uAlpha.value = (this.dim / 0.42) * lit;
   }
 
   private updateHead(): void {
@@ -345,8 +398,11 @@ export class TheatreSystem extends createSystem({
     let U = sub(UP, scale(N, dot(UP, N)));
     U = norm(U);
     const Rw = cross(U, N);
+    // Re-placement: glide the lantern from where it was instead of jumping.
+    const previousLamp = state.stage && this.arrive >= 1 ? ([...state.stage.lamp] as V3) : null;
+    this.placedHead = [H[0], H[1], H[2]];
     const stage: Stage = {
-      lamp,
+      lamp: previousLamp ?? lamp,
       wallPoint,
       wallNormal: N,
       wallRight: Rw,
@@ -354,9 +410,18 @@ export class TheatreSystem extends createSystem({
       lampRadius: 0.012,
     };
     state.stage = stage;
+    this.lampGoal = previousLamp ? lamp : null;
     this.shadows.placeWall(stage, state.regionSize);
     this.shadows.wallMat.uniforms.uVirtualWall.value = state.virtualWall ? 1 : 0;
-    this.lantern.position.set(lamp[0], lamp[1], lamp[2]);
+    this.lampAt = lamp;
+    if (this.arrive < 1) {
+      // entrance path: from just in front of the player, arcing up and over the shoulder
+      this.arriveFrom = [H[0] + F[0] * 0.45, H[1] - 0.04, H[2] + F[2] * 0.45];
+      this.arriveVia = [H[0] + F[0] * 0.25 + R[0] * 0.45 * s, H[1] + 0.22, H[2] + F[2] * 0.25 + R[2] * 0.45 * s];
+      this.lantern.position.set(this.arriveFrom[0], this.arriveFrom[1], this.arriveFrom[2]);
+    } else {
+      this.lantern.position.set(stage.lamp[0], stage.lamp[1], stage.lamp[2]);
+    }
     // Desktop room sits just behind the stage plane.
     this.room.position.set(wallPoint[0] - N[0] * 0.01, wallPoint[1] + 1.2, wallPoint[2] - N[2] * 0.01);
     this.room.lookAt(wallPoint[0] + N[0], wallPoint[1] + 1.2, wallPoint[2] + N[2]);
@@ -424,11 +489,12 @@ export class TheatreSystem extends createSystem({
       for (const h of state.hands) {
         if (!h.tracked) continue;
         const n = this.builder.build(stage, h.joints, h.radii, h.side, state.head, state.handSegs, count);
-        if (n > 0) {
-          // magnification of the wrist: projected radius / joint radius
-          mag += state.handSegs[count * 8 + 2] / Math.max(1e-4, h.radii[0]);
-          magN++;
-        }
+        if (n === 0) continue;
+        // magnification of the wrist: projected radius / joint radius
+        const m = state.handSegs[count * 8 + 2] / Math.max(1e-4, h.radii[0]);
+        if (m > 7) continue; // hand right up against the lantern: no sensible shadow
+        mag += m;
+        magN++;
         count += n;
       }
     }
@@ -468,7 +534,17 @@ export class ShadowDrawSystem extends createSystem({}) {
   }
 }
 
+/** Called once when the lantern settles into place (sound hook). */
+export let onLanternLit: (() => void) | null = null;
+export function setOnLanternLit(fn: () => void): void {
+  onLanternLit = fn;
+}
+
 // ------------------------------------------------------------------ helpers
+function smooth(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
 function dot(a: V3, b: V3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }

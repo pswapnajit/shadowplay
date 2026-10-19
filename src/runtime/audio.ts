@@ -158,6 +158,29 @@ export class AudioEngine {
     this.noiseSweep(400, 3000, 0.9, 0.12);
   }
 
+  /** A warm swell as the lantern settles and the wall lights up. */
+  lanternLit(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime;
+    for (const [f, a] of [
+      [196, 0.14],
+      [293.7, 0.08],
+      [392, 0.05],
+    ] as const) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(a, t0 + 0.5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.2);
+      o.connect(g).connect(this.master!);
+      o.start(t0);
+      o.stop(t0 + 3.3);
+    }
+    this.noiseSweep(300, 1800, 1.2, 0.1);
+  }
+
   /** Short sound effects for talking shadows. */
   chirp(pitch = 1): void {
     const ctx = this.ctx;

@@ -1,9 +1,1 @@
-{
-  "url": "https://localhost:8081/?demo=rabbit",
-  "steps": [
-    {"wait": 800, "eval": "localStorage.clear()"},
-    {"eval": "location.reload()"},
-    {"wait": 9000, "eval": "document.getElementById('landing').classList.add('hidden')"},
-    {"wait": 1200, "shot": "/private/tmp/claude-501/-Users-swapnajitpatra-Documents-Experiment/8c39a084-ca7a-42e3-a899-558209da0277/scratchpad/pw3.png"}
-  ]
-}
+{ "steps": [ {"eval": "(() => { const s = window.shadowplay.state; return {segs: s.handSegCount, mag: +s.magnification.toFixed(2), lamp: s.stage.lamp.map(v=>+v.toFixed(2)), head: s.head.position.map(v=>+v.toFixed(2)), phase: window.shadowplay.game.phase, iou: +window.shadowplay.game.iouSmooth.toFixed(2)}; })()"} ] }

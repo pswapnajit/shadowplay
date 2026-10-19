@@ -76,6 +76,7 @@ export class GameSystem extends createSystem({}) {
   private outlineVis = 0;
   private flash = 0;
   private mouthOpen = false;
+  private thumbsT = 0;
 
   title!: WallText;
   caption!: WallText;
@@ -140,6 +141,8 @@ export class GameSystem extends createSystem({}) {
   private setPhase(p: Phase): void {
     this.phase = p;
     this.phaseT = 0;
+    this.struggleT = 0;
+    this.thumbsT = 0;
     this.holdT = 0;
     this.iouSmooth = 0;
     this.lastTickLevel = 0;
@@ -182,13 +185,28 @@ export class GameSystem extends createSystem({}) {
         break;
       case 'seek':
         this.tickMatch(dt, false);
+        if (this.phaseT > 20) {
+          // Hands-only escape hatch: hold a thumbs-up to skip this creature.
+          this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
+          if (this.thumbsT > 1.2) {
+            this.caption.show('Skipped', 'It will wait for you in free play');
+            this.skipped.add(this.order[this.idx].id);
+            this.idx = this.nextUncollected(this.idx + 1);
+            this.setPhase(this.idx < 0 ? 'free' : 'seek');
+            break;
+          }
+        }
         if (this.noHandsT > 5) this.caption.show('Hands into the light', 'Your shadow appears on the wall');
-        else if (hasHands) this.caption.show(`Make a ${this.order[this.idx].name}`, this.phaseT > 12 ? this.order[this.idx].hint : '');
+        else if (hasHands) {
+          const c = this.order[this.idx];
+          const sub = this.phaseT > 30 ? 'Stuck? Hold a thumbs-up to skip' : this.phaseT > 12 ? c.hint : '';
+          this.caption.show(`Make a ${c.name}`, sub);
+        }
         break;
       case 'awaken':
         if (this.phaseT > 3.2) {
           this.title.hide();
-          this.idx = this.order.findIndex((c) => !this.collected.has(c.id));
+          this.idx = this.nextUncollected(this.idx + 1);
           this.setPhase(this.idx < 0 ? 'free' : 'seek');
         }
         break;
@@ -230,6 +248,18 @@ export class GameSystem extends createSystem({}) {
     this.caption.update(dt);
   }
 
+  /** Next creature not yet woken, starting at `from` and wrapping around. */
+  private nextUncollected(from: number): number {
+    const n = this.order.length;
+    for (let k = 0; k < n; k++) {
+      const i = (from + k) % n;
+      if (!this.collected.has(this.order[i].id) && !this.skipped.has(this.order[i].id)) return i;
+    }
+    return -1;
+  }
+
+  private skipped = new Set<string>();
+
   private defaultCentre(): [number, number] {
     return [0, 0.08];
   }
@@ -239,9 +269,15 @@ export class GameSystem extends createSystem({}) {
     return (t?.scale0 ?? 0.25) * (state.magnification / 2.6);
   }
 
+  /** Seconds spent close-but-not-quite on the current creature. */
+  private struggleT = 0;
+
   private threshold(c: CreatureDef | undefined): number {
     const base = TOLERANCE_IOU[state.settings.tolerance];
-    return c && c.difficulty === 3 ? base - 0.06 : base;
+    // Adaptive assist: if the player hovers near the bar, lower it gently
+    // (up to 0.08 over ~25 s) instead of letting them get frustrated.
+    const assist = Math.min(0.08, this.struggleT * 0.0032);
+    return (c && c.difficulty === 3 ? base - 0.06 : base) - assist;
   }
 
   private tickMatch(dt: number, free: boolean): void {
@@ -254,7 +290,9 @@ export class GameSystem extends createSystem({}) {
       let bestRes: MatchResult | null = null;
       let bestDef: CreatureDef | null = null;
       if (state.handSegCount > 0) {
-        const pool = free ? this.order.filter((c) => this.collected.has(c.id)) : [this.order[this.idx]];
+        const pool = free
+          ? this.order.filter((c) => this.collected.has(c.id) || this.skipped.has(c.id))
+          : [this.order[this.idx]];
         for (const c of pool) {
           const res = this.matcher.match(state.handSegs, state.handSegCount, this.targets.get(c.id)!);
           if (res && res.iou > bestIou) {
@@ -282,10 +320,17 @@ export class GameSystem extends createSystem({}) {
     }
     const def = free ? this.best : this.order[this.idx];
     if (!def) return;
+    if (!free && this.iouSmooth > 0.4) this.struggleT += dt;
     const thr = this.threshold(def);
     if (this.iouSmooth >= thr) this.holdT += dt;
     else this.holdT = Math.max(0, this.holdT - dt * 2);
     if (this.holdT >= 0.6 && this.last) {
+      if (free && !this.collected.has(def.id)) {
+        // a skipped creature, finally made in free play: it joins for real
+        this.wake(def, this.last, false);
+        this.holdT = 0;
+        return;
+      }
       if (free) {
         const cd = this.cooldown.get(def.id) ?? 0;
         if (performance.now() / 1000 > cd) {
@@ -475,4 +520,19 @@ export class GameSystem extends createSystem({}) {
     this.save();
     this.phase = 'idle';
   }
+}
+
+/** A one-handed thumbs-up: thumb tip well above the wrist, fingers curled. */
+function thumbsUp(): boolean {
+  for (const h of state.hands) {
+    if (!h.tracked) continue;
+    const j = h.joints;
+    const y = (i: number) => j[i * 3 + 1];
+    const d = (a: number, b: number) =>
+      Math.hypot(j[a * 3] - j[b * 3], j[a * 3 + 1] - j[b * 3 + 1], j[a * 3 + 2] - j[b * 3 + 2]);
+    const thumbUp = y(J.THUMB_TIP) - y(J.WRIST) > 0.09 && y(J.THUMB_TIP) > y(J.INDEX_PP) + 0.03;
+    const curled = [J.INDEX_TIP, J.MIDDLE_TIP, J.RING_TIP, J.PINKY_TIP].every((t) => d(t, J.WRIST) < 0.11);
+    if (thumbUp && curled) return true;
+  }
+  return false;
 }
