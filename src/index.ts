@@ -7,6 +7,7 @@ import projectOptions from 'virtual:iwsdk-project';
 import { CREATURE_BY_ID, CREATURES } from './core/creatures.js';
 import { audio } from './runtime/audio.js';
 import { DemoHandsSystem } from './runtime/demo-hands.js';
+import { DirectorSystem } from './runtime/director.js';
 import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
 import { setOnLanternLit, ShadowDrawSystem, TheatreSystem } from './runtime/theatre.js';
@@ -55,6 +56,13 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   );
 
   const params = new URLSearchParams(location.search);
+  if (params.has('director')) {
+    world.registerSystem(DirectorSystem, { priority: 85 });
+    const director = world.getSystem(DirectorSystem)!;
+    director.theatre = theatre;
+    director.game = game;
+    (window as unknown as { director: unknown }).director = director;
+  }
   if (params.has('demo')) {
     const id = params.get('demo') || 'bird';
     demo.perform(CREATURE_BY_ID[id] ?? CREATURES[0]);
@@ -132,5 +140,5 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   });
 
   // Debug handle for the dev tools / automated checks.
-  (window as unknown as { shadowplay: unknown }).shadowplay = { world, theatre, game, demo, webcam, state };
+  (window as unknown as { shadowplay: unknown }).shadowplay = { world, theatre, game, demo, webcam, state, audio };
 });

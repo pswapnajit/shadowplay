@@ -79,15 +79,23 @@ export class WallText {
     ctx.clearRect(0, 0, w, h);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const big = Math.round(h * (this.sub ? 0.36 : 0.46));
-    ctx.font = `italic ${big}px Georgia, 'Noto Serif', 'Times New Roman', serif`;
+    // Shrink the font until the line fits the panel.
+    const fit = (text: string, size: number, style: string) => {
+      let px = size;
+      do {
+        ctx.font = `${style}${px}px Georgia, 'Noto Serif', 'Times New Roman', serif`;
+        if (ctx.measureText(text).width <= w * 0.92) break;
+        px -= 2;
+      } while (px > 10);
+    };
+    fit(this.current, Math.round(h * (this.sub ? 0.36 : 0.46)), 'italic ');
     ctx.shadowColor = 'rgba(255, 190, 110, 0.9)';
     ctx.shadowBlur = h * 0.08;
     ctx.fillStyle = '#fff1d6';
     ctx.fillText(this.current, w / 2, this.sub ? h * 0.38 : h * 0.52);
     if (this.sub) {
       ctx.shadowBlur = h * 0.05;
-      ctx.font = `${Math.round(h * 0.17)}px Georgia, 'Noto Serif', serif`;
+      fit(this.sub, Math.round(h * 0.17), '');
       ctx.fillStyle = 'rgba(255, 236, 200, 0.92)';
       ctx.fillText(this.sub, w / 2, h * 0.8);
     }

@@ -51,3 +51,6 @@ tools/out/
 opencode.json
 tools/pw-shot.json
 tools/pw-probe.mjs
+tools/pw-prep.mjs
+tools/pw-test.mjs
+tools/rec-segment.json

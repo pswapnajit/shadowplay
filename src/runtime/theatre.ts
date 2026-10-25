@@ -337,6 +337,15 @@ export class TheatreSystem extends createSystem({
     this.placedAt = -1;
   }
 
+  /** Plays the opening again: the lantern's entrance and the wall lighting up. */
+  restartShow(): void {
+    this.arrive = 0;
+    this.litSoundPlayed = false;
+    this.dim = 0;
+    state.stage = null;
+    this.placedAt = -1;
+  }
+
   private place(): void {
     const H = state.head.position;
     // Level the head frame: the theatre stands upright regardless of head tilt.

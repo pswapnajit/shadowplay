@@ -85,6 +85,8 @@ export class GameSystem extends createSystem({}) {
   playerHands!: GhostHand;
   /** Forces the ghost hand on (debug / "show me" requests). */
   showGhost = false;
+  /** Draw the player's hands even in XR (director mode, where no real hands are visible). */
+  showPlayerHands = false;
 
   init(): void {
     for (const c of CREATURES) this.targets.set(c.id, creatureTarget(c));
@@ -483,7 +485,7 @@ export class GameSystem extends createSystem({}) {
     else this.ghost.hide();
     this.ghost.update(dt);
     // In the headset the player sees their real hands; on a screen we draw them.
-    if (state.virtualWall && state.handSegCount > 0) this.playerHands.show(this.order[0]);
+    if ((state.virtualWall || this.showPlayerHands) && state.handSegCount > 0) this.playerHands.show(this.order[0]);
     else this.playerHands.hide();
     this.playerHands.update(dt);
   }
@@ -522,6 +524,8 @@ export class GameSystem extends createSystem({}) {
   /** Forget the menagerie (menu action). */
   reset(): void {
     this.collected.clear();
+    this.skipped.clear();
+    this.living = [];
     this.save();
     this.phase = 'idle';
   }

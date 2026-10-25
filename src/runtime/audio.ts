@@ -30,6 +30,14 @@ export class AudioEngine {
     this.startAmbience();
   }
 
+  /** A stream of everything the game plays, for recording the demo video. */
+  captureStream(): MediaStream | null {
+    if (!this.ctx || !this.master) return null;
+    const dest = this.ctx.createMediaStreamDestination();
+    this.master.connect(dest);
+    return dest.stream;
+  }
+
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.1);
