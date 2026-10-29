@@ -179,7 +179,8 @@ export class GameSystem extends createSystem({}) {
     switch (this.phase) {
       case 'intro':
         this.title.show('Shadowplay');
-        if (this.phaseT > 1.2) this.caption.show('Raise your hands into the light', 'between the lantern and the wall');
+        if (this.phaseT > 1.2 && state.controllersInHand) this.caption.show('Put your controllers down', 'Shadowplay is played with your bare hands');
+        else if (this.phaseT > 1.2) this.caption.show('Raise your hands into the light', 'between the lantern and the wall');
         if (this.phaseT > 3 && this.handsSeenT > 1.5) {
           this.title.hide();
           this.setPhase(this.idx < 0 ? 'free' : 'seek');
@@ -198,7 +199,8 @@ export class GameSystem extends createSystem({}) {
             break;
           }
         }
-        if (this.noHandsT > 5) this.caption.show('Hands into the light', 'Your shadow appears on the wall');
+        if (state.controllersInHand && this.noHandsT > 1) this.caption.show('Put your controllers down', 'Shadowplay is played with your bare hands');
+        else if (this.noHandsT > 5) this.caption.show('Hands into the light', 'Your shadow appears on the wall');
         else if (hasHands) {
           const c = this.order[this.idx];
           const sub = this.phaseT > 30 ? 'Stuck? Hold a thumbs-up to skip' : this.phaseT > 12 ? c.hint : '';

@@ -14,9 +14,7 @@
       "offer": "always",
       "features": {
         "handTracking": true,
-        "anchors": true,
-        "planeDetection": true,
-        "meshDetection": true
+        "planeDetection": true
       }
     },
     "input": {

@@ -462,6 +462,10 @@ export class TheatreSystem extends createSystem({
     }
     this.player.updateWorldMatrix(true, false);
     const pm = this.player.matrixWorld.elements;
+    // Controllers in hand means no hand tracking: the game asks the player to put them down.
+    let controllers = 0;
+    for (const source of session.inputSources) if (!source.hand && source.gamepad) controllers++;
+    state.controllersInHand = controllers > 0;
     for (const source of session.inputSources) {
       const hand = source.hand;
       if (!hand || (source.handedness !== 'left' && source.handedness !== 'right')) continue;

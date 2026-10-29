@@ -53,6 +53,8 @@ export const state = {
   } as HeadFrame,
   hands: [makeHand('left'), makeHand('right')] as [HandFrame, HandFrame],
   handSource: 'none' as HandSourceKind,
+  /** True while the player holds controllers instead of using hand tracking. */
+  controllersInHand: false,
 
   /** Player's hand shadow segments (wall coordinates). */
   handSegs: new Float32Array(2 * BONES_PER_HAND * SEG_STRIDE),
