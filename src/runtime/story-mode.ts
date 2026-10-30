@@ -9,7 +9,7 @@
 import type { ShaderMaterial } from '@iwsdk/core';
 import { addTale, loadBook, recentSaga } from '../story/book.js';
 import { Narrator } from '../story/narrator.js';
-import { type Action, type Ask, CAST, type CreatureId, type Step } from '../story/protocol.js';
+import { type Action, type Ask, CAST, type CreatureId, daypartOf, type Step } from '../story/protocol.js';
 import { audio } from './audio.js';
 import { NarrationPanel } from './narration.js';
 import { StageFx } from './stage-fx.js';
@@ -94,12 +94,14 @@ export class StoryMode {
     this.waitT = 0;
     this.holdT = 1.3;
     // The Lantern's own opening words, spoken while the first beat is on its way.
+    const daypart = daypartOf(new Date().getHours());
+    const now = daypart === 'evening' || daypart === 'night' ? 'Tonight' : 'Today';
     this.intro = (
       book.length === 0
-        ? ['Every night, I tell a story.', 'Tonight, you cast it. Whoever you make on the wall will be in it.']
-        : ['Another night, another story.', "Let's see who comes out of the dark tonight."]
+        ? [`Every ${daypart}, I tell a story.`, `${now}, you cast it. Whoever you make on the wall will be in it.`]
+        : ['Another story? Of course.', "Let's see who comes out of the dark."]
     ).map((say) => ({ say }));
-    this.narrator.begin({ type: 'open', known: this.host.known(), tales: book.length });
+    this.narrator.begin({ type: 'open', known: this.host.known(), tales: book.length, daypart });
   }
 
   stop(): void {

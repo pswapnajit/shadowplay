@@ -37,7 +37,8 @@ export class NarrationPanel {
   /** Called as each word appears (for the Lantern's murmur). */
   onWord: ((word: string, index: number, count: number) => void) | null = null;
 
-  constructor(private readonly widthM = 2.0) {
+  // 1.5 m keeps a line within ~45° at a typical wall distance (comfortable on every Quest's field of view).
+  constructor(private readonly widthM = 1.5) {
     this.canvas = document.createElement('canvas');
     this.canvas.width = W;
     this.canvas.height = H;

@@ -6,7 +6,7 @@
  * become its cast.
  */
 
-import { createSystem } from '@iwsdk/core';
+import { createSystem, VisibilityState } from '@iwsdk/core';
 import { CREATURE_BY_ID, CREATURES, type CreatureDef } from '../core/creatures.js';
 import { J } from '../core/hand-data.js';
 import { type MatchResult, ShapeMatcher, type Target } from '../core/match.js';
@@ -215,6 +215,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const stage = state.stage;
     const r = this.theatre?.shadows;
     if (!stage || !r) return;
+    // The system menu is open over the session: hold the show (and the story) until it closes.
+    if (this.world.visibilityState.peek() === VisibilityState.VisibleBlurred) return;
     const dt = Math.min(delta, 0.05);
     this.phaseT += dt;
     if (this.phase === 'idle') this.begin();

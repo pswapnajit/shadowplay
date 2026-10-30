@@ -21,6 +21,12 @@ export type Action = (typeof ACTIONS)[number];
 
 export type Ask = CreatureId | 'any';
 
+export const DAYPARTS = ['morning', 'afternoon', 'evening', 'night'] as const;
+export type Daypart = (typeof DAYPARTS)[number];
+export function daypartOf(hour: number): Daypart {
+  return hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 17 ? 'afternoon' : hour >= 17 && hour < 21 ? 'evening' : 'night';
+}
+
 export type Step = { say: string } | { cue: Cue } | { who: CreatureId; does: Action };
 export type Next = { ask: Ask; prompt: string } | { end: string; summary: string };
 export interface Beat {
@@ -29,8 +35,11 @@ export interface Beat {
 }
 
 export type StoryEvent =
-  /** A story begins. `known`: creatures the player has woken before. `tales`: stories told before tonight. */
-  | { type: 'open'; known: CreatureId[]; tales: number }
+  /**
+   * A story begins. `known`: creatures the player has woken before. `tales`:
+   * stories told before tonight. `daypart`: the player's local time of day.
+   */
+  | { type: 'open'; known: CreatureId[]; tales: number; daypart?: Daypart }
   /** The player made a creature in answer to an ask. */
   | { type: 'made'; asked: Ask; made: CreatureId; seconds: number; helped: boolean; calls: number; first: boolean }
   /** Nobody came: the player let the ask go (thumbs-up) or time ran out. */
@@ -186,7 +195,8 @@ export function parseEvent(x: unknown): StoryEvent | null {
   switch (o.type) {
     case 'open': {
       if (!Array.isArray(o.known) || !o.known.every(isCreature)) return null;
-      return { type: 'open', known: [...new Set(o.known)], tales: num(o.tales, 9999) };
+      const daypart = (DAYPARTS as readonly unknown[]).includes(o.daypart) ? (o.daypart as Daypart) : undefined;
+      return { type: 'open', known: [...new Set(o.known)], tales: num(o.tales, 9999), ...(daypart ? { daypart } : {}) };
     }
     case 'made':
       if (!isAsk(o.asked) || !isCreature(o.made)) return null;
@@ -217,8 +227,10 @@ const the = (id: CreatureId) => `the ${CAST[id].name} (${id})`;
 export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: string; summary: string }[] = []): string {
   if (e.type === 'open') {
     const known = e.known.length ? e.known.map(the).join(', ') : 'none yet';
+    const when = e.daypart ? `It is ${e.daypart === 'night' ? 'late at night' : `the ${e.daypart}`} where the player is.` : '';
     const lines = [
-      'A new night in the theatre.',
+      'A new story in the theatre.',
+      ...(when ? [when] : []),
       `Creatures this player already knows how to make: ${known}.`,
       `Stories told in this theatre before tonight: ${e.tales}.`,
     ];
