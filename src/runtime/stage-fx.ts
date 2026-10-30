@@ -7,6 +7,7 @@
 import type { ShaderMaterial, Vector2, Vector4 } from '@iwsdk/core';
 import type { Cue } from '../story/protocol.js';
 import { audio } from './audio.js';
+import { state } from './state.js';
 
 type Level = 'night' | 'dawn' | 'stars' | 'moon' | 'rain' | 'snow' | 'fireflies' | 'wind';
 const LEVELS: Level[] = ['night', 'dawn', 'stars', 'moon', 'rain', 'snow', 'fireflies', 'wind'];
@@ -30,6 +31,8 @@ export class StageFx {
   steady = 0;
   /** The last cues, newest last (debug overlay). */
   readonly history: Cue[] = [];
+  /** How much of the moon is lit tonight: it grows with every night the player comes back (1 = full). */
+  moonLit = 1;
 
   cue(c: Cue): void {
     const t = this.target;
@@ -72,8 +75,8 @@ export class StageFx {
         audio.bed('wind', 0.35);
         break;
       case 'thunder':
-        // light first, sound after: a double flicker, then the roll
-        this.flashes.push(this.time, this.time + 0.16, this.time + 0.42);
+        // light first, sound after: a double flicker, then the roll (a calm stage keeps only the sound)
+        if (!state.settings.calm) this.flashes.push(this.time, this.time + 0.16, this.time + 0.42);
         this.thunderAt = this.time + 0.7;
         if (t.rain < 0.5 && t.snow < 0.5) {
           t.rain = 0.7;
@@ -152,8 +155,8 @@ export class StageFx {
     this.moonRise = Math.min(1, this.moonRise + dt / 7);
     const rise = 1 - Math.pow(1 - this.moonRise, 3);
 
-    // Wind swings the lantern; the shadows swing with it.
-    const w = this.level.wind * (1 - 0.75 * this.steady);
+    // Wind swings the lantern; the shadows swing with it (not on a calm stage).
+    const w = state.settings.calm ? 0 : this.level.wind * (1 - 0.75 * this.steady);
     const A = 0.045 * w;
     const t = this.time;
     this.sway[0] = A * (Math.sin(t * 1.35) + 0.45 * Math.sin(t * 3.1 + 1.3));
@@ -163,6 +166,7 @@ export class StageFx {
     (u.uSky.value as Vector4).set(this.level.night, this.level.dawn, this.level.stars, this.level.moon);
     (u.uWeather.value as Vector4).set(this.level.rain, this.level.snow, this.level.fireflies, this.flash);
     (u.uMoon.value as Vector2).set(-0.98, 0.58 + 0.34 * rise);
+    u.uMoonLit.value = this.moonLit;
     (u.uSway.value as Vector2).set(this.sway[0], this.sway[1]);
   }
 }

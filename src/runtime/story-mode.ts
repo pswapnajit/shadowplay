@@ -7,12 +7,13 @@
  */
 
 import type { ShaderMaterial } from '@iwsdk/core';
-import { addTale, loadBook, recentSaga } from '../story/book.js';
+import { addTale, loadBook, nightKey, nightNumber, pendingPromise, recentSaga } from '../story/book.js';
 import { Narrator } from '../story/narrator.js';
-import { type Action, type Ask, CAST, type CreatureId, daypartOf, type Step } from '../story/protocol.js';
+import { type Action, type Ask, CAST, type CreatureId, daypartOf, type Ending, type Keepsake, moonOf, type Step } from '../story/protocol.js';
 import { audio } from './audio.js';
 import { NarrationPanel } from './narration.js';
 import { StageFx } from './stage-fx.js';
+import { state } from './state.js';
 import { voice } from './voice.js';
 
 export type StoryPhase = 'off' | 'telling' | 'asking' | 'ending';
@@ -22,10 +23,12 @@ export interface StoryHost {
   known(): CreatureId[];
   /** Directs a creature in tonight's cast; false if it isn't on stage. */
   direct(who: CreatureId, does: Action): boolean;
-  /** A new ask: show its outline (or none for "any"). */
-  onAsk(ask: Ask): void;
+  /** A new ask: show its outline (or none for "any"). Returns the ask as the theatre can stage it. */
+  onAsk(ask: Ask): Ask;
   /** The tale is over: the cast bows and goes home. */
   curtainCall(): void;
+  /** The tale's keepsake joins the garland. */
+  keepsake(k: Keepsake): void;
   showTitle(text: string, sub?: string): void;
   hideTitle(): void;
 }
@@ -59,7 +62,12 @@ export class StoryMode {
   /** Creatures that have appeared in tonight's tale, in order. */
   cast: CreatureId[] = [];
   title = '';
+  /** Which night this is in the theatre (the moon grows with each). */
+  night = 1;
+  /** Asks made so far in this tale. */
+  asks = 0;
   onDone: (() => void) | null = null;
+  private ending: Ending | null = null;
 
   private intro: Step[] = [];
   private step: Step | null = null;
@@ -88,6 +96,11 @@ export class StoryMode {
     return this.phase !== 'off';
   }
 
+  /** The tale's opening, before its first ask (the keepsakes of earlier nights hang in the light). */
+  get opening(): boolean {
+    return this.phase === 'telling' && this.asks === 0;
+  }
+
   start(): void {
     const book = loadBook();
     this.narrator?.cancel();
@@ -96,20 +109,41 @@ export class StoryMode {
     this.ask = null;
     this.step = null;
     this.title = '';
+    this.ending = null;
+    this.asks = 0;
     this.phase = 'telling';
     this.waitT = 0;
     this.holdT = 1.3;
-    // The Lantern's own opening words, spoken while the first beat is on its way.
-    const daypart = daypartOf(new Date().getHours());
+    const nowMs = Date.now();
+    const daypart = daypartOf(new Date(nowMs).getHours());
     const now = daypart === 'evening' || daypart === 'night' ? 'Tonight' : 'Today';
-    // A returning player hears where they left off.
+    // Every night the player comes back, the moon over the theatre grows; it rises as the show opens.
+    this.night = nightNumber(book, nowMs);
+    const moon = moonOf(this.night);
+    this.fx.moonLit = moon.lit;
+    this.fx.cue('moon');
+    const promise = pendingPromise(book, nowMs);
+    // The Lantern's own opening words, spoken while the first beat is on its way.
     const last = book[book.length - 1];
-    this.intro = (
-      !last
-        ? [`Every ${daypart}, I tell a story.`, `${now}, you cast it. Whoever you make on the wall will be in it.`]
-        : [`Last time, I told "${last.title}".`, `${now}, something new. Let's see who comes out of the dark.`]
-    ).map((say) => ({ say }));
-    this.narrator.begin({ type: 'open', known: this.host.known(), tales: book.length, daypart });
+    const lines: string[] = [];
+    if (!last) lines.push(`Every ${daypart}, I tell a story.`, `${now}, you cast it. Whoever you make on the wall will be in it.`);
+    else if (nightKey(last.at) === nightKey(nowMs)) lines.push('Another story? Of course.', "Let's see who comes out of the dark.");
+    else {
+      if (moon.phase === 'full') lines.push('The moon is full tonight.', 'On full-moon nights, old friends come back.');
+      else lines.push(`The moon has grown. ${cardinal(moon.toFull)} more ${moon.toFull === 1 ? 'night' : 'nights'} until it's full.`);
+      if (promise) lines.push('Last time, I made you a promise. Tonight, I keep it.');
+      else if (moon.phase !== 'full') lines.push(`Last time, I told "${last.title}". ${now}, something new.`);
+    }
+    this.intro = lines.map((say) => ({ say }));
+    this.narrator.begin({
+      type: 'open',
+      known: this.host.known(),
+      tales: book.length,
+      daypart,
+      night: this.night,
+      ...(state.settings.oneHand ? { hands: 1 as const } : {}),
+      ...(promise ? { keep: promise.keep } : {}),
+    });
   }
 
   stop(): void {
@@ -158,21 +192,32 @@ export class StoryMode {
         this.askT += dt;
         if (this.askT > 100) this.letGo();
         break;
-      case 'ending':
+      case 'ending': {
         this.endT += dt;
-        // the last line fades before the title card and the curtain call
+        const e = this.ending;
+        // the last line fades before the title card, the curtain call and the keepsake
         if (this.endT > 0.9 && this.endT - dt <= 0.9) {
           this.host.showTitle(this.title, 'The End');
           this.host.curtainCall();
+          if (e) this.host.keepsake(e.keepsake);
           audio.song([0, 2, 4, 7, 9, 7, 4, 2, 4, 0], 0.24);
         }
-        if (this.endT > 10) {
+        // Then the Lantern's promise for tomorrow night.
+        if (e?.tomorrow && this.endT > 5.6 && this.endT - dt <= 5.6) {
+          this.host.hideTitle();
+          this.sayLine(e.tomorrow);
+        }
+        this.followVoice(dt);
+        const promised = !e?.tomorrow || (this.endT > 6 && this.panel.done && !voice.speaking);
+        if ((this.endT > 10 && promised) || this.endT > 24) {
           this.phase = 'off';
           this.host.hideTitle();
+          this.panel.hide();
           this.fx.reset();
           this.onDone?.();
         }
         break;
+      }
     }
   }
 
@@ -183,13 +228,7 @@ export class StoryMode {
     }
     if (this.step) {
       this.stepT -= dt;
-      this.voiceT += dt;
-      const speaking = voice.speaking && this.voiceT < this.voiceCap;
-      // the voice finished the line: all of it shows, and the story moves on
-      if (this.voicedLine && !speaking && this.voiceT > 0.5) {
-        this.voicedLine = false;
-        this.panel.voiceDone();
-      }
+      const speaking = this.followVoice(dt);
       if (this.stepT > 0 || ('say' in this.step && (!this.panel.done || speaking))) return;
       this.step = null;
     }
@@ -203,7 +242,7 @@ export class StoryMode {
       const next = n.next;
       n.next = null;
       if ('ask' in next) this.beginAsk(next.ask, next.prompt);
-      else this.end(next.end, next.summary);
+      else this.end(next);
       return;
     }
     // Waiting for the Lantern: after a moment, it visibly gathers its thoughts.
@@ -214,18 +253,35 @@ export class StoryMode {
     }
   }
 
+  /** Puts a line on the wall, read aloud when the device has a voice. */
+  private sayLine(text: string): void {
+    const voiced = voice.on;
+    this.voicedLine = voiced;
+    const dur = this.panel.speak(text, voiced);
+    this.voiceT = 0;
+    this.voiceCap = dur * 2 + 2;
+    if (voiced) voice.speak(text, (i) => this.panel.follow(i));
+  }
+
+  /** Keeps the words in step with the voice; true while it is still reading the line. */
+  private followVoice(dt: number): boolean {
+    this.voiceT += dt;
+    const speaking = voice.speaking && this.voiceT < this.voiceCap;
+    // the voice finished the line: all of it shows, and the story moves on
+    if (this.voicedLine && !speaking && this.voiceT > 0.5) {
+      this.voicedLine = false;
+      this.panel.voiceDone();
+    }
+    return speaking;
+  }
+
   private perform(step: Step): void {
     this.waitT = 0;
     this.step = step;
     if ('say' in step) {
       this.host.hideTitle();
       this.stepT = 0;
-      const voiced = voice.on;
-      this.voicedLine = voiced;
-      const dur = this.panel.speak(step.say, voiced);
-      this.voiceT = 0;
-      this.voiceCap = dur * 2 + 2;
-      if (voiced) voice.speak(step.say, (i) => this.panel.follow(i));
+      this.sayLine(step.say);
     } else if ('cue' in step) {
       this.fx.cue(step.cue);
       this.stepT = step.cue === 'moon' || step.cue === 'dawn' ? 1.5 : step.cue === 'thunder' ? 1.3 : 0.7;
@@ -235,6 +291,7 @@ export class StoryMode {
   }
 
   private beginAsk(ask: Ask, prompt: string): void {
+    this.asks++;
     this.phase = 'asking';
     this.ask = ask;
     this.prompt = prompt;
@@ -243,25 +300,36 @@ export class StoryMode {
     this.calls = 0;
     this.fx.steady = 1;
     this.panel.hide();
-    this.host.onAsk(ask);
+    this.ask = this.host.onAsk(ask);
   }
 
-  private end(title: string, summary: string): void {
+  private end(e: Ending): void {
     this.phase = 'ending';
     this.endT = 0;
-    this.title = title;
+    this.title = e.end;
+    this.ending = e;
     this.panel.hide();
     const n = this.narrator!;
     const signed = n.source === 'lantern' && n.tale ? n.tale : null;
+    // A signed tale keeps the promise exactly as it was signed (the Lantern can be reminded of it).
+    const promise = signed ? signed.promise : e.tomorrow;
     addTale({
-      title,
-      summary,
+      title: e.end,
+      summary: e.summary,
       cast: [...this.cast],
       at: Date.now(),
       by: signed ? 'lantern' : 'understudy',
+      keepsake: e.keepsake,
       ...(signed ? { sig: signed.sig } : {}),
+      ...(promise ? { promise } : {}),
+      ...(!signed && e.plan ? { plan: e.plan } : {}),
     });
   }
+}
+
+const CARDINALS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven'];
+function cardinal(n: number): string {
+  return CARDINALS[n] ?? String(n);
 }
 
 /** Creatures that can't fly leap instead. */

@@ -6,15 +6,17 @@
  * become its cast.
  */
 
-import { createSystem, VisibilityState } from '@iwsdk/core';
+import { createSystem, Vector3, type Vector4, VisibilityState } from '@iwsdk/core';
 import { CREATURE_BY_ID, CREATURES, type CreatureDef } from '../core/creatures.js';
 import { J } from '../core/hand-data.js';
 import { type MatchResult, ShapeMatcher, type Target } from '../core/match.js';
 import { RIG_HEIGHT, RIGS, SegWriter } from '../core/rigs.js';
 import { fingerShape, fingersFit } from '../core/fingers.js';
 import { creatureTarget, decoyTargets, specJoints } from '../core/targets.js';
-import type { Action, Ask, CreatureId } from '../story/protocol.js';
+import { keepsakesOf, loadBook } from '../story/book.js';
+import type { Action, Ask, CreatureId, Keepsake } from '../story/protocol.js';
 import { audio } from './audio.js';
+import { Garland } from './keepsakes.js';
 import { state, TOLERANCE_IOU } from './state.js';
 import { canFly, StoryMode, type StoryHost } from './story-mode.js';
 import type { TheatreSystem } from './theatre.js';
@@ -65,6 +67,11 @@ const HOME_Y = -0.6;
 const REST_T: Record<string, number> = { bird: 0.1, rabbit: 0, dog: 0, wolf: 0, fox: 0, swan: 0, crocodile: 0, deer: 0, butterfly: 0 };
 /** Story stage spots along the ground line, filled in this order. */
 const STAGE_X = [-0.55, 0.55, -0.86, 0.86, -0.3, 0.3];
+/** Look to choose: seconds of looking that pick a creature, or a caption's action. */
+const DWELL = 1.4;
+const DWELL_CAPTION = 1.8;
+
+type GazeKind = 'outline' | 'shelf' | 'caption';
 
 export class GameSystem extends createSystem({}) implements StoryHost {
   theatre: TheatreSystem | null = null;
@@ -122,8 +129,28 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   private toldThisSession = false;
   /** Shelf creatures dim while a story is on stage: they become its audience. */
   private shelfDim = 1;
+  /** Every finished tale's keepsake, hanging on a thread across the theatre. */
+  garland = new Garland(keepsakesOf(loadBook()));
+
+  // Look to choose (hands-free): where the player is looking on the wall, and for how long.
+  private gazeXY: [number, number] = [0, 0];
+  private gazeKind: GazeKind | null = null;
+  private gazeOf: Living | null = null;
+  private gazeT = 0;
+  private gazeShown = 0;
+  /** On a screen, the pointer stands in for the head (a mouse, trackpad, head mouse or eye tracker). */
+  private pointer = { x: 0, y: 0, t: -1 };
+  private readonly rayO = new Vector3();
+  private readonly rayD = new Vector3();
 
   init(): void {
+    const onPointer = (e: PointerEvent) => {
+      this.pointer.x = (e.clientX / innerWidth) * 2 - 1;
+      this.pointer.y = 1 - (e.clientY / innerHeight) * 2;
+      this.pointer.t = performance.now();
+    };
+    addEventListener('pointermove', onPointer);
+    this.cleanupFuncs.push(() => removeEventListener('pointermove', onPointer));
     for (const c of CREATURES) {
       this.targets.set(c.id, creatureTarget(c));
       if (c.hands.length === 1) this.fingers.set(c.id, fingerShape(specJoints(c.hands[0])));
@@ -180,10 +207,12 @@ export class GameSystem extends createSystem({}) implements StoryHost {
 
   /** Starts (or restarts) the show once the stage exists. */
   private begin(): void {
+    // One-hand play teaches (and asks for) only the creatures made with one hand.
+    this.order = state.settings.oneHand ? CREATURES.filter((c) => c.hands.length === 1) : CREATURES;
     // Returning players find their menagerie waiting.
     this.living = [];
     let slot = 0;
-    for (const c of this.order) {
+    for (const c of CREATURES) {
       if (!this.collected.has(c.id)) continue;
       const home = this.homeOf(c, slot++);
       this.living.push(this.makeLiving(c, home[0], home[1], home[2], -1, 'home'));
@@ -245,8 +274,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       case 'intro':
         this.title.show('Shadowplay');
         if (this.phaseT > 1.2 && state.controllersInHand) this.caption.show('Put your controllers down', 'Shadowplay is played with your bare hands');
-        else if (this.phaseT > 1.2) this.caption.show('Raise your hands into the light', 'between the lantern and the wall');
-        if (this.phaseT > 3 && this.handsSeenT > 1.5) {
+        else if (this.phaseT > 1.2) this.caption.show('Raise your hands into the light', state.settings.look ? 'or just look: your eyes can choose too' : 'between the lantern and the wall');
+        // Hands-free players don't need to raise their hands to begin.
+        if (this.phaseT > 3 && (this.handsSeenT > 1.5 || (state.settings.look && state.audience && this.phaseT > 5))) {
           this.title.hide();
           // A player who knows at least one creature goes straight to a story.
           this.setPhase(this.storyOn && this.collected.size > 0 ? 'story' : this.idx < 0 ? 'free' : 'seek');
@@ -258,15 +288,15 @@ export class GameSystem extends createSystem({}) implements StoryHost {
           // Hands-only escape hatch: hold a thumbs-up to skip this creature.
           this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
           if (this.thumbsT > 1.2) {
-            this.caption.show('Skipped', 'It will wait for you in free play');
-            this.skipped.add(this.order[this.idx].id);
-            this.idx = this.nextUncollected(this.idx + 1);
-            this.setPhase(this.idx < 0 ? 'free' : 'seek');
+            this.skipLesson();
             break;
           }
         }
         if (state.controllersInHand && this.noHandsT > 1) this.caption.show('Put your controllers down', 'Shadowplay is played with your bare hands');
-        else if (this.noHandsT > 5) this.caption.show('Hands into the light', 'Your shadow appears on the wall');
+        else if (state.settings.look) {
+          const c = this.order[this.idx];
+          this.caption.show(`Make a ${c.name}`, this.phaseT > 20 ? 'Or look here to skip it' : 'Or look at its outline to wake it');
+        } else if (this.noHandsT > 5) this.caption.show('Hands into the light', 'Your shadow appears on the wall');
         else if (hasHands) {
           const c = this.order[this.idx];
           const sub = this.phaseT > 30 ? 'Stuck? Hold a thumbs-up to skip' : this.phaseT > 12 ? c.hint : '';
@@ -287,7 +317,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         break;
       case 'free':
         this.tickMatch(dt, 'free');
-        if (this.phaseT > 8) this.caption.hide();
+        if (state.settings.look && this.storyOn && this.phaseT > 2.5) this.caption.show('Look here for another story', 'or look at a creature to wake it');
+        else if (this.phaseT > 8) this.caption.hide();
         if (this.storyOn && this.phaseT > 2.5) {
           // Hands-only request: hold a thumbs-up for another story.
           this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
@@ -299,7 +330,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         break;
     }
 
+    audio.listen(state.head, stage);
     this.updateMouth();
+    this.updateLook(dt);
     this.animate(dt, time);
     this.updateGhost(dt);
     this.story.update(dt, r.wallMat);
@@ -335,6 +368,14 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.caption.update(dt);
   }
 
+  /** Moves past the creature being taught; it waits in free play. */
+  private skipLesson(): void {
+    this.caption.show('Skipped', 'It will wait for you in free play');
+    this.skipped.add(this.order[this.idx].id);
+    this.idx = this.nextUncollected(this.idx + 1);
+    this.setPhase(this.idx < 0 ? 'free' : 'seek');
+  }
+
   /** Next creature not yet woken, starting at `from` and wrapping around. */
   private nextUncollected(from: number): number {
     const n = this.order.length;
@@ -363,8 +404,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   private threshold(c: CreatureDef | undefined): number {
     const base = TOLERANCE_IOU[state.settings.tolerance];
     // Adaptive assist: if the player hovers near the bar, lower it gently
-    // (up to 0.08 over ~25 s) instead of letting them get frustrated.
-    const assist = Math.min(0.08, this.struggleT * 0.0032);
+    // (up to 0.08 over ~25 s, twice as fast with gentle shapes) instead of letting them get frustrated.
+    const assist = Math.min(0.08, this.struggleT * (state.settings.gentle ? 0.0064 : 0.0032));
     return (c && c.difficulty === 3 ? base - 0.06 : base) - assist;
   }
 
@@ -491,10 +532,10 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const lv = this.makeLiving(def, m.frame.cx, m.frame.cy - (h * s) / 2, s, facing, 'perform');
     lv.alpha = 0;
     this.living.push(lv);
-    this.flash = 1;
-    audio.awaken();
-    audio.song(def.song, 0.15, Math.max(-1, Math.min(1, m.frame.cx)));
-    if (def.id === 'wolf') audio.howl(0.7);
+    this.flash = state.settings.calm ? 0.35 : 1;
+    audio.awaken(m.frame.cx, m.frame.cy);
+    audio.song(def.song, 0.15, m.frame.cx, m.frame.cy);
+    if (def.id === 'wolf') audio.howl(0.7, m.frame.cx, m.frame.cy);
     return lv;
   }
 
@@ -522,6 +563,12 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const want = this.storyWant;
     this.tickMatch(dt, 'story');
     if (s.phase !== 'asking') return; // a creature just answered
+    if (state.settings.look) {
+      // Hands-free: look at a creature (or the outline) to answer; the caption lets the ask go.
+      const sub = s.askT > 24 ? 'Or look here to let it go' : want ? `Make the ${want.name}, or look at it` : 'Make a shadow, or look at a creature';
+      this.caption.show(s.prompt, sub);
+      return;
+    }
     let sub = want ? `Make the ${want.name}` : 'Make any shadow you know';
     if (s.askT > 24) {
       sub = want && Math.floor(s.askT / 6) % 2 ? want.hint : 'Or hold a thumbs-up to let it go';
@@ -543,18 +590,24 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     return [...this.collected] as CreatureId[];
   }
 
-  onAsk(ask: Ask): void {
+  onAsk(ask: Ask): Ask {
     this.iouSmooth = 0;
     this.holdT = 0;
     this.struggleT = 0;
     this.lastTickLevel = 0;
     this.best = null;
     this.thumbsT = 0;
+    this.gazeT = 0;
     this.title.hide();
+    // One-hand play: a call for a two-handed creature becomes "whoever comes".
+    if (ask !== 'any' && !this.order.some((c) => c.id === ask)) ask = 'any';
     const r = this.theatre?.shadows;
     if (ask !== 'any') r?.setTarget(this.targets.get(ask)!);
     else r?.setTarget(null);
-    this.caption.show(this.story.prompt, ask !== 'any' ? `Make the ${CREATURE_BY_ID[ask].name}` : 'Make any shadow you know');
+    const look = state.settings.look;
+    const sub = ask !== 'any' ? `Make the ${CREATURE_BY_ID[ask].name}${look ? ', or look at it' : ''}` : look ? 'Make a shadow, or look at a creature' : 'Make any shadow you know';
+    this.caption.show(this.story.prompt, sub);
+    return ask;
   }
 
   showTitle(text: string, sub = ''): void {
@@ -576,6 +629,11 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     if (lv.mode !== 'story') lv.pending = does; // still arriving: it acts when it gets there
     else this.startAct(lv, does);
     return true;
+  }
+
+  keepsake(k: Keepsake): void {
+    this.garland.add(k);
+    audio.sparkle(4);
   }
 
   curtainCall(): void {
@@ -634,7 +692,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         break;
       case 'call':
         if (lv.pose === 'sleep') lv.pose = 'stand';
-        this.callOut(lv.def, lv.x);
+        this.callOut(lv.def, lv.x, lv.y + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2);
         break;
       case 'leave':
         lv.act = null;
@@ -680,19 +738,19 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     lv.facing = lv.toX >= lv.x ? 1 : -1;
   }
 
-  private callOut(def: CreatureDef, x: number): void {
-    const pan = Math.max(-1, Math.min(1, x));
+  /** A creature on stage calls out, from where it stands. */
+  private callOut(def: CreatureDef, x: number, y: number): void {
     if (def.id === 'bird') {
-      audio.chirp(1);
-      setTimeout(() => audio.chirp(1.1), 180);
+      audio.chirp(1, x, y);
+      setTimeout(() => audio.chirp(1.1, x, y), 180);
     } else if (def.id === 'dog') {
-      audio.bark();
-      setTimeout(() => audio.bark(), 260);
-    } else if (def.id === 'wolf') audio.howl(0.8);
+      audio.bark(x, y);
+      setTimeout(() => audio.bark(x, y), 260);
+    } else if (def.id === 'wolf') audio.howl(0.8, x, y);
     else if (def.id === 'crocodile') {
-      audio.snap();
-      setTimeout(() => audio.snap(), 220);
-    } else audio.song(def.song, 0.13, pan);
+      audio.snap(x, y);
+      setTimeout(() => audio.snap(x, y), 220);
+    } else audio.song(def.song, 0.13, x, y);
   }
 
   /** One frame of a story creature: its spot, its pose, and whatever it's acting out. */
@@ -826,7 +884,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   private animate(dt: number, _time: number): void {
     const w = this.writer;
     w.n = 0;
-    const dimTo = this.phase === 'story' ? 0.3 : 1;
+    // Hands-free players choose from the shelf, so it lights up while the story asks.
+    const choosing = state.settings.look && this.phase === 'story' && this.story.phase === 'asking';
+    const dimTo = this.phase === 'story' && !choosing ? 0.3 : 1;
     this.shelfDim += (dimTo - this.shelfDim) * Math.min(1, dt * 1.5);
     for (const lv of this.living) {
       lv.modeT += dt;
@@ -885,7 +945,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
           if (lv.nextAction < 0) {
             lv.action = 1;
             lv.nextAction = 4 + Math.random() * 6;
-            if (lv.def.id === 'wolf' && Math.random() < 0.35 && this.phase !== 'story') audio.howl(0.35);
+            if (lv.def.id === 'wolf' && Math.random() < 0.35 && this.phase !== 'story') audio.howl(0.35, lv.x, lv.y);
           }
           lv.action = Math.max(0, lv.action - dt * 1.5);
           break;
@@ -901,6 +961,11 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       w.begin(lv.x, lv.y, lv.s * breathe, lv.facing, alpha);
       rig(w, lv.t, lv.action);
     }
+    // The garland hangs low in the light while the show opens and when a tale ends, and up out of the way otherwise.
+    const s = this.story;
+    this.garland.shown =
+      this.phase === 'intro' || (this.phase === 'story' && (s.opening || s.phase === 'ending')) || (this.phase === 'free' && this.phaseT < 8);
+    this.garland.draw(w, dt, this.story.fx.level.wind);
     // drop finished visitors
     this.living = this.living.filter((lv) => !(lv.visitor && lv.mode === 'home'));
     state.creatureSegCount = w.n;
@@ -917,7 +982,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const c = this.phase === 'seek' ? this.order[this.idx] : want;
     const t = this.phase === 'story' ? this.story.askT : this.phaseT;
     const firstTime = (want ? !this.collected.has(want.id) : this.collected.size === 0) && t > 1.5;
-    const stuck = t > 7 && this.iouSmooth < 0.45;
+    const stuck = t > (state.settings.gentle ? 3.5 : 7) && this.iouSmooth < 0.45;
     if (c && (this.showGhost || ((firstTime || stuck) && this.iouSmooth < 0.5))) {
       this.ghost.show(c);
       if (want) this.story.helped = true;
@@ -927,6 +992,150 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     if ((state.virtualWall || this.showPlayerHands) && state.handSegCount > 0) this.playerHands.show(this.order[0]);
     else this.playerHands.hide();
     this.playerHands.update(dt);
+  }
+
+  // --- look to choose (hands-free) ---------------------------------------------------
+
+  /**
+   * Where the player is looking on the wall (wall metres): along the head's
+   * gaze in the headset, under the pointer on a screen. False when the gaze
+   * misses the wall.
+   */
+  private gazePoint(out: [number, number]): boolean {
+    const st = state.stage;
+    if (!st) return false;
+    const O = this.rayO;
+    const D = this.rayD;
+    if (this.world.visibilityState.peek() !== VisibilityState.NonImmersive) {
+      const H = state.head.position;
+      const F = state.head.forward;
+      O.set(H[0], H[1], H[2]);
+      D.set(F[0], F[1], F[2]);
+    } else {
+      if (this.pointer.t < 0 || performance.now() - this.pointer.t > 5000) return false;
+      const cam = this.world.camera;
+      cam.getWorldPosition(O);
+      D.set(this.pointer.x, this.pointer.y, 0.5).unproject(cam).sub(O).normalize();
+    }
+    const N = st.wallNormal;
+    const W = st.wallPoint;
+    const dn = D.x * N[0] + D.y * N[1] + D.z * N[2];
+    if (dn > -0.05) return false; // looking along the wall, or away from it
+    const t = ((W[0] - O.x) * N[0] + (W[1] - O.y) * N[1] + (W[2] - O.z) * N[2]) / dn;
+    if (t <= 0) return false;
+    const px = O.x + D.x * t - W[0];
+    const py = O.y + D.y * t - W[1];
+    const pz = O.z + D.z * t - W[2];
+    const R = st.wallRight;
+    const U = st.wallUp;
+    out[0] = px * R[0] + py * R[1] + pz * R[2];
+    out[1] = px * U[0] + py * U[1] + pz * U[2];
+    return true;
+  }
+
+  /**
+   * Look to choose: every hand interaction has a hands-free twin. Looking at
+   * an outline wakes it, looking at a creature on the shelf calls it into the
+   * story (or wakes it in free play), and looking at the caption does what a
+   * held thumbs-up would. A gold ring fills while the player looks.
+   */
+  private updateLook(dt: number): void {
+    const u = this.theatre!.shadows.wallMat.uniforms;
+    const ring = u.uGaze.value as Vector4;
+    const dot = u.uGazeDot.value as Vector3;
+    const looking = state.settings.look && this.gazePoint(this.gazeXY);
+    this.gazeShown += ((looking ? 1 : 0) - this.gazeShown) * Math.min(1, dt * 4);
+    dot.set(this.gazeXY[0], this.gazeXY[1], this.gazeShown * 0.6);
+    let kind: GazeKind | null = null;
+    let of: Living | null = null;
+    let cx = 0;
+    let cy = 0;
+    let rad = 0;
+    if (looking) {
+      const [gx, gy] = this.gazeXY;
+      const asking = this.phase === 'story' && this.story.phase === 'asking';
+      const captionY = this.phase === 'story' ? 0.64 : 0.47;
+      const captionAct =
+        (this.phase === 'seek' && this.phaseT > 20) || (asking && this.story.askT > 24) || (this.phase === 'free' && this.storyOn && this.phaseT > 2.5);
+      if (captionAct && Math.abs(gx) < 0.5 && Math.abs(gy - captionY) < 0.11) {
+        kind = 'caption';
+        cx = gx;
+        cy = gy;
+        rad = 0.045;
+      } else if (this.phase === 'seek' || (asking && this.storyWant && this.outlineVis > 0.5)) {
+        const reach = Math.max(0.16, this.os);
+        if (Math.hypot(gx - this.ox, gy - this.oy) < reach) {
+          kind = 'outline';
+          cx = this.ox;
+          cy = this.oy;
+          rad = Math.max(0.14, this.os * 0.9);
+        }
+      }
+      if (!kind && (asking || this.phase === 'free')) {
+        let best = 0.11;
+        for (const lv of this.living) {
+          if (lv.mode !== 'home' || lv.visitor || lv.alpha < 0.5) continue;
+          const y = lv.y + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2;
+          const d = Math.hypot(gx - lv.x, gy - y);
+          if (d < best) {
+            best = d;
+            of = lv;
+            cx = lv.x;
+            cy = y;
+            rad = 0.09;
+          }
+        }
+        if (of) kind = 'shelf';
+      }
+    }
+    if (kind !== this.gazeKind || of !== this.gazeOf) {
+      this.gazeKind = kind;
+      this.gazeOf = of;
+      this.gazeT = 0;
+    } else if (kind) this.gazeT += dt;
+    const p = kind ? Math.max(0, this.gazeT) / (kind === 'caption' ? DWELL_CAPTION : DWELL) : 0;
+    ring.set(cx, cy, kind ? rad : 0, Math.min(1, p));
+    const level = Math.floor(p * 4);
+    if (kind && level > this.gazeLevel && level <= 4) audio.tick(level / 4);
+    this.gazeLevel = kind ? level : 0;
+    if (kind && p >= 1) {
+      this.gazeT = -0.8; // a beat before the next choice can begin
+      this.chooseByLook(kind, of);
+    }
+  }
+
+  private gazeLevel = 0;
+
+  private chooseByLook(kind: GazeKind, lv: Living | null): void {
+    const asking = this.phase === 'story' && this.story.phase === 'asking';
+    if (kind === 'caption') {
+      if (this.phase === 'free') this.setPhase('story');
+      else if (this.phase === 'seek') this.skipLesson();
+      else if (asking) {
+        this.caption.hide();
+        this.theatre?.shadows.setTarget(null);
+        this.story.letGo();
+      }
+      return;
+    }
+    if (kind === 'outline') {
+      const def = this.phase === 'seek' ? this.order[this.idx] : this.storyWant;
+      if (!def) return;
+      const m = lookMatch(this.ox, this.oy, this.os);
+      if (this.phase === 'seek') this.wake(def, m, false);
+      else this.wakeStory(def, m);
+      return;
+    }
+    if (!lv) return;
+    const m = lookMatch(lv.x, lv.y + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2, 0.1);
+    if (asking) this.wakeStory(lv.def, m);
+    else if (this.phase === 'free') {
+      const cd = this.cooldown.get(lv.def.id) ?? 0;
+      if (performance.now() / 1000 > cd) {
+        this.cooldown.set(lv.def.id, performance.now() / 1000 + 5);
+        this.wake(lv.def, m, true);
+      }
+    }
   }
 
   /** Talking shadows: open the beak to chirp, drop the jaw to bark. */
@@ -953,13 +1162,21 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       open = Math.hypot(L[m] - R[m], L[m + 1] - R[m + 1], L[m + 2] - R[m + 2]) / size > 0.45;
     } else return;
     if (open && !this.mouthOpen) {
-      if (def.id === 'bird') audio.chirp(0.9 + Math.random() * 0.2);
-      else if (def.id === 'dog') audio.bark();
-      else if (def.id === 'wolf') audio.howl(0.8);
-      else audio.snap();
+      // the sound comes from the shadow itself
+      const x = this.last?.frame.cx ?? 0;
+      const y = this.last?.frame.cy ?? 0;
+      if (def.id === 'bird') audio.chirp(0.9 + Math.random() * 0.2, x, y);
+      else if (def.id === 'dog') audio.bark(x, y);
+      else if (def.id === 'wolf') audio.howl(0.8, x, y);
+      else audio.snap(x, y);
       if (asking) this.story.calls++;
     }
     this.mouthOpen = open;
+  }
+
+  /** A player has just arrived (headset on, or webcam started): open the show with their current settings. */
+  restartIntro(): void {
+    if (this.phase === 'intro' || this.phase === 'idle') this.phase = 'idle';
   }
 
   /** Forget the menagerie (menu action). */
@@ -972,6 +1189,11 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.save();
     this.phase = 'idle';
   }
+}
+
+/** A choice made by looking, shaped like a match so the creature wakes just as it would for a shadow. */
+function lookMatch(cx: number, cy: number, scale: number): MatchResult {
+  return { iou: 1, angle: 0, mirror: cx < 0, frame: { cx, cy, scale, area: scale * scale } };
 }
 
 /** A one-handed thumbs-up: thumb tip well above the wrist, fingers curled. */

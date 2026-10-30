@@ -1,7 +1,11 @@
 /**
  * Procedural sound: everything is synthesised with Web Audio, so there are
- * no assets to license and nothing to download.
+ * no assets to license and nothing to download. Creature sounds are spatial:
+ * each comes from its creature's place on the wall, and the Lantern murmurs
+ * from over the player's shoulder, wherever they turn their head.
  */
+
+import type { HeadFrame, Stage } from '../core/shadow-geom.js';
 
 const PENT = [0, 2, 4, 7, 9];
 
@@ -11,6 +15,10 @@ export class AudioEngine {
   private ambience: GainNode | null = null;
   private plucks = new Map<number, AudioBuffer>();
   muted = false;
+  /** The theatre, for placing sounds on its wall. */
+  private stage: Stage | null = null;
+  /** The Lantern's own voice comes from the lantern. */
+  private lanternOut: PannerNode | null = null;
 
   /** Must be called from a user gesture (Enter XR click, first pinch…). */
   start(): void {
@@ -89,6 +97,60 @@ export class AudioEngine {
     src.start();
   }
 
+  /**
+   * Called every frame: the listener follows the player's head, and the
+   * Lantern's voice follows the lantern.
+   */
+  listen(head: HeadFrame, stage: Stage | null): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.stage = stage;
+    const L = ctx.listener;
+    const [px, py, pz] = head.position;
+    const f = head.forward;
+    const u = head.up;
+    if (L.positionX) {
+      L.positionX.value = px;
+      L.positionY.value = py;
+      L.positionZ.value = pz;
+      L.forwardX.value = f[0];
+      L.forwardY.value = f[1];
+      L.forwardZ.value = f[2];
+      L.upX.value = u[0];
+      L.upY.value = u[1];
+      L.upZ.value = u[2];
+    } else {
+      L.setPosition(px, py, pz);
+      L.setOrientation(f[0], f[1], f[2], u[0], u[1], u[2]);
+    }
+    if (stage) {
+      this.lanternOut ??= this.panner();
+      setPannerAt(this.lanternOut, stage.lamp[0], stage.lamp[1], stage.lamp[2]);
+    }
+  }
+
+  private panner(): PannerNode {
+    const p = this.ctx!.createPanner();
+    p.panningModel = 'HRTF';
+    p.distanceModel = 'inverse';
+    p.refDistance = 2;
+    p.rolloffFactor = 0.5;
+    p.connect(this.master!);
+    return p;
+  }
+
+  /** Where a sound at wall point (x, y) plays from: a spatial panner when the theatre is up, else straight out. */
+  private onWall(x?: number, y = 0): AudioNode {
+    const st = this.stage;
+    if (x === undefined || !st) return this.master!;
+    const W = st.wallPoint;
+    const R = st.wallRight;
+    const U = st.wallUp;
+    const p = this.panner();
+    setPannerAt(p, W[0] + R[0] * x + U[0] * y, W[1] + R[1] * x + U[1] * y, W[2] + R[2] * x + U[2] * y);
+    return p;
+  }
+
   /** Fade the ambience in or out (0..1). */
   setAmbience(level: number): void {
     if (this.ambience && this.ctx) this.ambience.gain.setTargetAtTime(level, this.ctx.currentTime, 1.2);
@@ -127,28 +189,34 @@ export class AudioEngine {
     return buf;
   }
 
-  pluck(freq: number, when = 0, gain = 0.5, pan = 0): void {
+  /** One plucked note: `out` is a stereo pan (-1..1) or a node to play through. */
+  pluck(freq: number, when = 0, gain = 0.5, out: number | AudioNode = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
     const src = ctx.createBufferSource();
     src.buffer = this.pluckBuffer(freq);
     const g = ctx.createGain();
     g.gain.value = gain;
-    const p = ctx.createStereoPanner();
-    p.pan.value = pan;
-    src.connect(g).connect(p).connect(this.master!);
+    if (typeof out === 'number') {
+      const p = ctx.createStereoPanner();
+      p.pan.value = out;
+      src.connect(g).connect(p).connect(this.master!);
+    } else src.connect(g).connect(out);
     src.start(ctx.currentTime + when);
   }
 
-  /** A creature's little song, on a plucked string. */
-  song(degrees: number[], tempo = 0.16, pan = 0): void {
-    degrees.forEach((d, i) => this.pluck(AudioEngine.degreeToFreq(d), i * tempo, 0.4, pan));
+  /** A creature's little song, on a plucked string, from where it stands on the wall (x, y). */
+  song(degrees: number[], tempo = 0.16, x?: number, y = 0): void {
+    if (!this.ctx || this.muted) return;
+    const out = this.onWall(x, y);
+    degrees.forEach((d, i) => this.pluck(AudioEngine.degreeToFreq(d), i * tempo, 0.4, out));
   }
 
-  /** Bell-like shimmer when a shadow wakes up. */
-  awaken(): void {
+  /** Bell-like shimmer when a shadow wakes up, where it wakes. */
+  awaken(x?: number, y = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
+    const out = this.onWall(x, y);
     const t0 = ctx.currentTime;
     [523.3, 784, 1046.5, 1568].forEach((f, i) => {
       const o = ctx.createOscillator();
@@ -158,12 +226,12 @@ export class AudioEngine {
       g.gain.setValueAtTime(0, t0 + i * 0.07);
       g.gain.linearRampToValueAtTime(0.16 / (i + 1), t0 + i * 0.07 + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + i * 0.07 + 2.2);
-      o.connect(g).connect(this.master!);
+      o.connect(g).connect(out);
       o.start(t0 + i * 0.07);
       o.stop(t0 + 2.5);
     });
     // breathy whoosh
-    this.noiseSweep(400, 3000, 0.9, 0.12);
+    this.noiseSweep(400, 3000, 0.9, 0.12, out);
   }
 
   /** A warm swell as the lantern settles and the wall lights up. */
@@ -190,9 +258,10 @@ export class AudioEngine {
   }
 
   /** A soft wolf howl: a sine that rises, wavers and falls, through a vowel-ish filter. */
-  howl(gain = 0.6): void {
+  howl(gain = 0.6, x?: number, y = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
+    const out = this.onWall(x, y);
     const t0 = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'triangle';
@@ -214,17 +283,18 @@ export class AudioEngine {
     g.gain.linearRampToValueAtTime(0.18 * gain, t0 + 0.3);
     g.gain.linearRampToValueAtTime(0.14 * gain, t0 + 1.5);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.1);
-    o.connect(f).connect(g).connect(this.master!);
+    o.connect(f).connect(g).connect(out);
     o.start(t0);
     vib.start(t0);
     o.stop(t0 + 2.2);
     vib.stop(t0 + 2.2);
   }
 
-  /** Short sound effects for talking shadows. */
-  chirp(pitch = 1): void {
+  /** Short sound effects for talking shadows, from where each one is on the wall. */
+  chirp(pitch = 1, x?: number, y = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
+    const out = this.onWall(x, y);
     const t0 = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'sine';
@@ -235,14 +305,15 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(0.12, t0 + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
-    o.connect(g).connect(this.master!);
+    o.connect(g).connect(out);
     o.start(t0);
     o.stop(t0 + 0.16);
   }
 
-  bark(): void {
+  bark(x?: number, y = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
+    const out = this.onWall(x, y);
     const t0 = ctx.currentTime;
     const o = ctx.createOscillator();
     o.type = 'sawtooth';
@@ -256,16 +327,17 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(0.22, t0 + 0.015);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
-    o.connect(f).connect(g).connect(this.master!);
+    o.connect(f).connect(g).connect(out);
     o.start(t0);
     o.stop(t0 + 0.22);
-    this.noiseSweep(1200, 500, 0.12, 0.06);
+    this.noiseSweep(1200, 500, 0.12, 0.06, out);
   }
 
-  snap(): void {
+  snap(x?: number, y = 0): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
-    this.noiseSweep(3000, 800, 0.05, 0.25);
+    const out = this.onWall(x, y);
+    this.noiseSweep(3000, 800, 0.05, 0.25, out);
     const t0 = ctx.currentTime;
     const o = ctx.createOscillator();
     o.frequency.setValueAtTime(140, t0);
@@ -273,7 +345,7 @@ export class AudioEngine {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.25, t0);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
-    o.connect(g).connect(this.master!);
+    o.connect(g).connect(out);
     o.start(t0);
     o.stop(t0 + 0.12);
   }
@@ -431,7 +503,8 @@ export class AudioEngine {
   birdsong(): void {
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
-    for (let i = 0; i < 7; i++) setTimeout(() => this.chirp(0.8 + Math.random() * 0.5), 400 + i * 520 + Math.random() * 300);
+    // from all over the wall, high up, like birds waking in the trees
+    for (let i = 0; i < 7; i++) setTimeout(() => this.chirp(0.8 + Math.random() * 0.5, Math.random() * 1.8 - 0.9, 0.3 + Math.random() * 0.5), 400 + i * 520 + Math.random() * 300);
   }
 
   /**
@@ -454,7 +527,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(gain, t0 + 0.018);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
-    o.connect(lp).connect(g).connect(this.master!);
+    o.connect(lp).connect(g).connect(this.lanternOut ?? this.master!);
     o.start(t0);
     o.stop(t0 + 0.18);
   }
@@ -466,7 +539,7 @@ export class AudioEngine {
     this.pluck(AudioEngine.degreeToFreq(Math.round(level * 7), 523.3), 0, 0.12);
   }
 
-  private noiseSweep(f0: number, f1: number, dur: number, gain: number): void {
+  private noiseSweep(f0: number, f1: number, dur: number, gain: number, out: AudioNode = this.master!): void {
     const ctx = this.ctx!;
     const t0 = ctx.currentTime;
     const len = Math.floor(ctx.sampleRate * dur);
@@ -484,9 +557,17 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(gain, t0 + dur * 0.3);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(f).connect(g).connect(this.master!);
+    src.connect(f).connect(g).connect(out);
     src.start(t0);
   }
+}
+
+function setPannerAt(p: PannerNode, x: number, y: number, z: number): void {
+  if (p.positionX) {
+    p.positionX.value = x;
+    p.positionY.value = y;
+    p.positionZ.value = z;
+  } else p.setPosition(x, y, z);
 }
 
 export const audio = new AudioEngine();

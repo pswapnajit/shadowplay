@@ -5,10 +5,11 @@
 import { createSystem, VisibilityState, World } from '@iwsdk/core';
 import projectOptions from 'virtual:iwsdk-project';
 import { CREATURE_BY_ID, CREATURES } from './core/creatures.js';
+import { ACCESS_OPTIONS, loadAccess, setAccess } from './runtime/access.js';
 import { audio } from './runtime/audio.js';
 import { DemoHandsSystem } from './runtime/demo-hands.js';
-import { loadBook } from './story/book.js';
-import { CAST } from './story/protocol.js';
+import { loadBook, nightKey, nightNumber, pendingPromise } from './story/book.js';
+import { CAST, moonOf } from './story/protocol.js';
 import { DirectorSystem } from './runtime/director.js';
 import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
@@ -16,6 +17,8 @@ import { setOnLanternLit, ShadowDrawSystem, TheatreSystem } from './runtime/thea
 import { storyEndpoint } from './runtime/story-mode.js';
 import { voice } from './runtime/voice.js';
 import { webcam } from './runtime/webcam.js';
+
+loadAccess();
 
 World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
   world.registerSystem(DemoHandsSystem, { priority: 90 });
@@ -117,6 +120,8 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   webcam.onStatus = (s, detail) => {
     if (s === 'loading') say('Waking the lantern… (allow camera access)');
     if (s === 'running') {
+      state.audience = true;
+      game.restartIntro();
       say('Hold your hands up between you and the screen', 6000);
       landing.classList.add('hidden');
       if (webcam.video) {
@@ -152,9 +157,54 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   showAloud();
   if (typeof speechSynthesis !== 'undefined') speechSynthesis.addEventListener?.('voiceschanged', showAloud);
 
+  // Comfort and access: remembered on this device; none of it is needed to play.
+  const access = document.getElementById('access') as HTMLDetailsElement;
+  access.querySelector('.opts')!.replaceChildren(
+    ...ACCESS_OPTIONS.map((o) => {
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = state.settings[o.key];
+      box.addEventListener('change', () => setAccess(o.key, box.checked));
+      const name = document.createElement('span');
+      name.className = 'l';
+      name.textContent = o.label;
+      const detail = document.createElement('span');
+      detail.className = 'd';
+      detail.textContent = o.detail;
+      label.append(box, name, detail);
+      return label;
+    }),
+  );
+  if (ACCESS_OPTIONS.some((o) => state.settings[o.key])) access.open = true;
+
   // The Book of Shadows: every tale told on this device, newest first.
   const showBook = () => {
     const book = loadBook();
+    // Tonight: which night it is, how the moon is growing, and what the Lantern promised.
+    const tonight = document.getElementById('tonight')!;
+    tonight.hidden = book.length === 0;
+    if (book.length) {
+      const night = nightNumber(book);
+      const moon = moonOf(night);
+      const moonText =
+        moon.phase === 'full' ? 'the moon is full: old friends come back tonight' : `${moon.toFull} ${moon.toFull === 1 ? 'night' : 'nights'} until the full moon`;
+      const promise = pendingPromise(book);
+      const told = nightKey(book[book.length - 1].at) === nightKey(Date.now());
+      const span = document.createElement('span');
+      span.className = 'moon';
+      span.textContent = `${'☾'} Night ${night}`;
+      tonight.replaceChildren(span, document.createTextNode(` · ${moonText}`));
+      if (promise) {
+        const q = document.createElement('q');
+        q.textContent = promise.text;
+        tonight.append(document.createTextNode(' · the Lantern promised:'), q);
+      } else if (told && book[book.length - 1].promise) {
+        const q = document.createElement('q');
+        q.textContent = book[book.length - 1].promise!;
+        tonight.append(document.createTextNode(' · come back tomorrow:'), q);
+      }
+    }
     const el = document.getElementById('book') as HTMLDetailsElement;
     el.hidden = book.length === 0;
     if (!book.length) return;
@@ -172,7 +222,7 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
           const meta = document.createElement('span');
           meta.className = 'm';
           const cast = t.cast.map((c) => CAST[c].name).join(', ');
-          meta.textContent = `${new Date(t.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${cast ? ` · ${cast}` : ''}`;
+          meta.textContent = `${new Date(t.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${cast ? ` · ${cast}` : ''}${t.keepsake ? ` · left a paper ${t.keepsake}` : ''}`;
           li.append(title, document.createTextNode(` ${t.summary}`), meta);
           return li;
         }),
@@ -181,6 +231,8 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   showBook();
 
   world.visibilityState.subscribe((v) => {
+    state.audience = v !== VisibilityState.NonImmersive || webcam.status === 'running';
+    if (v === VisibilityState.Visible) game.restartIntro();
     if (v === VisibilityState.NonImmersive) showBook();
     landing.classList.toggle('hidden', v !== VisibilityState.NonImmersive || webcam.status === 'running');
     if (v === VisibilityState.Visible) {

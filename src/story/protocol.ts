@@ -21,6 +21,45 @@ export type Action = (typeof ACTIONS)[number];
 
 export type Ask = CreatureId | 'any';
 
+/** Each finished tale leaves a small paper keepsake hanging in the player's theatre. */
+export const KEEPSAKES = ['star', 'moon', 'feather', 'shell', 'key', 'leaf', 'bell', 'boat', 'acorn', 'snowflake', 'kite', 'crown'] as const;
+export type Keepsake = (typeof KEEPSAKES)[number];
+
+/**
+ * The moon over the theatre grows with every night the player comes back:
+ * a thin crescent on the first night, full on the seventh, then round again.
+ */
+export const MOON_CYCLE = 7;
+export type MoonPhase = 'crescent' | 'half' | 'gibbous' | 'full';
+export function moonOf(night: number): { phase: MoonPhase; lit: number; toFull: number } {
+  const k = ((Math.max(1, Math.floor(night)) - 1) % MOON_CYCLE) + 1;
+  const lit = k / MOON_CYCLE;
+  return { phase: k === MOON_CYCLE ? 'full' : lit < 0.3 ? 'crescent' : lit < 0.6 ? 'half' : 'gibbous', lit, toFull: MOON_CYCLE - k };
+}
+
+/** "the fox", "the Chatterbird". */
+export function called(id: CreatureId): string {
+  return id === 'bird' ? 'the Chatterbird' : `the ${CAST[id].name.toLowerCase()}`;
+}
+
+/**
+ * The understudy's promises for tomorrow, one per tale it knows. Shared, so
+ * that when the Lantern is back the next night it can keep them too (the
+ * client sends only the tale's number and its lead, never the words).
+ */
+export const TEASERS = [
+  "Tomorrow, I'll tell you how {who} lost the moon's reflection.",
+  "Tomorrow, I'll tell you about {who} and a star that fell into the grass.",
+  'Tomorrow, {who} sets off to see the sea before morning.',
+  'Tomorrow, a small sad sound keeps {who} awake all night.',
+] as const;
+export function teaser(quest: number, who: CreatureId): string {
+  return TEASERS[Math.max(0, Math.min(TEASERS.length - 1, quest))].replace('{who}', called(who));
+}
+
+/** A promise to keep tonight: the one in the last signed tale, or one of the understudy's. */
+export type Keep = 'last' | { quest: number; who: CreatureId };
+
 export const DAYPARTS = ['morning', 'afternoon', 'evening', 'night'] as const;
 export type Daypart = (typeof DAYPARTS)[number];
 export function daypartOf(hour: number): Daypart {
@@ -28,7 +67,16 @@ export function daypartOf(hour: number): Daypart {
 }
 
 export type Step = { say: string } | { cue: Cue } | { who: CreatureId; does: Action };
-export type Next = { ask: Ask; prompt: string } | { end: string; summary: string };
+export interface Ending {
+  end: string;
+  summary: string;
+  keepsake: Keepsake;
+  /** The Lantern's promise for tomorrow night ("Tomorrow, I'll tell you…"), or ''. */
+  tomorrow: string;
+  /** The understudy's own plan for that promise (never sent by the server). */
+  plan?: { quest: number; who: CreatureId };
+}
+export type Next = { ask: Ask; prompt: string } | Ending;
 export interface Beat {
   script: Step[];
   next: Next;
@@ -38,8 +86,10 @@ export type StoryEvent =
   /**
    * A story begins. `known`: creatures the player has woken before. `tales`:
    * stories told before tonight. `daypart`: the player's local time of day.
+   * `night`: which night this is in the theatre (it sets the moon). `hands`:
+   * 1 for one-handed play. `keep`: a promise made last time, to keep tonight.
    */
-  | { type: 'open'; known: CreatureId[]; tales: number; daypart?: Daypart }
+  | { type: 'open'; known: CreatureId[]; tales: number; daypart?: Daypart; night?: number; hands?: 1 | 2; keep?: Keep }
   /** The player made a creature in answer to an ask. */
   | { type: 'made'; asked: Ask; made: CreatureId; seconds: number; helped: boolean; calls: number; first: boolean }
   /** Nobody came: the player let the ask go (thumbs-up) or time ran out. */
@@ -54,6 +104,8 @@ export interface SignedTurn {
 export interface SignedTale {
   title: string;
   summary: string;
+  /** The promise for the next night, signed with the rest. */
+  promise?: string;
   sig: string;
 }
 export interface StoryRequest {
@@ -80,6 +132,7 @@ export const LIMITS = {
   promptChars: 80,
   titleChars: 60,
   summaryChars: 240,
+  promiseChars: 140,
   sagaTales: 3,
   bodyBytes: 400_000,
   maxSeconds: 600,
@@ -92,24 +145,27 @@ export interface CastMember {
   notes: string;
   difficulty: 1 | 2 | 3;
   canFly: boolean;
+  /** Hands it takes to make. */
+  hands: 1 | 2;
 }
 
 export const CAST: Record<CreatureId, CastMember> = {
-  bird: { id: 'bird', name: 'Chatterbird', notes: 'a small songbird who chatters, gossips and sings; easy to make', difficulty: 1, canFly: true },
-  rabbit: { id: 'rabbit', name: 'Rabbit', notes: 'quick and nervous, braver than it looks; easy', difficulty: 1, canFly: false },
-  dog: { id: 'dog', name: 'Dog', notes: 'loyal, loud, barks at everything; medium', difficulty: 2, canFly: false },
-  wolf: { id: 'wolf', name: 'Wolf', notes: 'lonely and proud, howls at the moon; medium', difficulty: 2, canFly: false },
-  fox: { id: 'fox', name: 'Fox', notes: 'clever, a little vain, a trickster with a good heart; medium', difficulty: 2, canFly: false },
-  swan: { id: 'swan', name: 'Swan', notes: 'graceful and proud, glides on still water; medium', difficulty: 2, canFly: true },
-  crocodile: { id: 'crocodile', name: 'Crocodile', notes: 'grumpy and snappy, secretly soft-hearted; hard (two hands)', difficulty: 3, canFly: false },
-  deer: { id: 'deer', name: 'Deer', notes: 'shy and gentle, with magnificent antlers; hard (two hands)', difficulty: 3, canFly: false },
-  butterfly: { id: 'butterfly', name: 'Butterfly', notes: 'tiny, brave and restless, always fluttering; hard (two hands)', difficulty: 3, canFly: true },
+  bird: { id: 'bird', name: 'Chatterbird', notes: 'a small songbird who chatters, gossips and sings; easy to make', difficulty: 1, canFly: true, hands: 1 },
+  rabbit: { id: 'rabbit', name: 'Rabbit', notes: 'quick and nervous, braver than it looks; easy', difficulty: 1, canFly: false, hands: 1 },
+  dog: { id: 'dog', name: 'Dog', notes: 'loyal, loud, barks at everything; medium', difficulty: 2, canFly: false, hands: 1 },
+  wolf: { id: 'wolf', name: 'Wolf', notes: 'lonely and proud, howls at the moon; medium', difficulty: 2, canFly: false, hands: 1 },
+  fox: { id: 'fox', name: 'Fox', notes: 'clever, a little vain, a trickster with a good heart; medium', difficulty: 2, canFly: false, hands: 1 },
+  swan: { id: 'swan', name: 'Swan', notes: 'graceful and proud, glides on still water; medium', difficulty: 2, canFly: true, hands: 1 },
+  crocodile: { id: 'crocodile', name: 'Crocodile', notes: 'grumpy and snappy, secretly soft-hearted; hard (two hands)', difficulty: 3, canFly: false, hands: 2 },
+  deer: { id: 'deer', name: 'Deer', notes: 'shy and gentle, with magnificent antlers; hard (two hands)', difficulty: 3, canFly: false, hands: 2 },
+  butterfly: { id: 'butterfly', name: 'Butterfly', notes: 'tiny, brave and restless, always fluttering; hard (two hands)', difficulty: 3, canFly: true, hands: 2 },
 };
 
 const isCreature = (x: unknown): x is CreatureId => typeof x === 'string' && (CREATURE_IDS as readonly string[]).includes(x);
 const isAsk = (x: unknown): x is Ask => x === 'any' || isCreature(x);
 const isCue = (x: unknown): x is Cue => typeof x === 'string' && (CUES as readonly string[]).includes(x);
 const isAction = (x: unknown): x is Action => typeof x === 'string' && (ACTIONS as readonly string[]).includes(x);
+const isKeepsake = (x: unknown): x is Keepsake => typeof x === 'string' && (KEEPSAKES as readonly string[]).includes(x);
 
 const obj = (props: Record<string, unknown>, required = Object.keys(props)) => ({
   type: 'object',
@@ -140,6 +196,11 @@ export const BEAT_SCHEMA = obj({
       obj({
         end: { type: 'string', description: "The story's title, at most six words." },
         summary: { type: 'string', description: 'One sentence that sums up the tale, for remembering it on later nights.' },
+        keepsake: { type: 'string', enum: [...KEEPSAKES], description: 'The small paper keepsake this tale leaves hanging in the theatre; pick one that fits the story.' },
+        tomorrow: {
+          type: 'string',
+          description: "Your promise for tomorrow night: one sentence of at most 16 words that teases the next tale, starting with 'Tomorrow'.",
+        },
       }),
     ],
   },
@@ -171,7 +232,12 @@ export function parseNext(x: unknown): Next | null {
   const o = x as Record<string, unknown>;
   if (isAsk(o.ask) && typeof o.prompt === 'string') return { ask: o.ask, prompt: clip(o.prompt, LIMITS.promptChars) };
   if (typeof o.end === 'string' && typeof o.summary === 'string') {
-    return { end: clip(o.end, LIMITS.titleChars) || 'A Tale of Shadows', summary: clip(o.summary, LIMITS.summaryChars) };
+    return {
+      end: clip(o.end, LIMITS.titleChars) || 'A Tale of Shadows',
+      summary: clip(o.summary, LIMITS.summaryChars),
+      keepsake: isKeepsake(o.keepsake) ? o.keepsake : 'star',
+      tomorrow: typeof o.tomorrow === 'string' ? clip(o.tomorrow, LIMITS.promiseChars) : '',
+    };
   }
   return null;
 }
@@ -196,7 +262,23 @@ export function parseEvent(x: unknown): StoryEvent | null {
     case 'open': {
       if (!Array.isArray(o.known) || !o.known.every(isCreature)) return null;
       const daypart = (DAYPARTS as readonly unknown[]).includes(o.daypart) ? (o.daypart as Daypart) : undefined;
-      return { type: 'open', known: [...new Set(o.known)], tales: num(o.tales, 9999), ...(daypart ? { daypart } : {}) };
+      const night = num(o.night, 9999);
+      const k = o.keep as Record<string, unknown> | string | undefined;
+      const keep: Keep | undefined =
+        k === 'last'
+          ? 'last'
+          : k && typeof k === 'object' && isCreature(k.who) && Number.isInteger(k.quest) && (k.quest as number) >= 0 && (k.quest as number) < TEASERS.length
+            ? { quest: k.quest as number, who: k.who }
+            : undefined;
+      return {
+        type: 'open',
+        known: [...new Set(o.known)],
+        tales: num(o.tales, 9999),
+        ...(daypart ? { daypart } : {}),
+        ...(night ? { night } : {}),
+        ...(o.hands === 1 ? { hands: 1 as const } : {}),
+        ...(keep ? { keep } : {}),
+      };
     }
     case 'made':
       if (!isAsk(o.asked) || !isCreature(o.made)) return null;
@@ -224,20 +306,32 @@ const the = (id: CreatureId) => `the ${CAST[id].name} (${id})`;
  * point renders the same bytes, which keeps the prompt cache and the
  * conversation's thinking blocks valid when the history is replayed.
  */
-export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: string; summary: string }[] = []): string {
+export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: string; summary: string; promise?: string }[] = []): string {
   if (e.type === 'open') {
     const known = e.known.length ? e.known.map(the).join(', ') : 'none yet';
     const when = e.daypart ? `It is ${e.daypart === 'night' ? 'late at night' : `the ${e.daypart}`} where the player is.` : '';
-    const lines = [
-      'A new story in the theatre.',
-      ...(when ? [when] : []),
-      `Creatures this player already knows how to make: ${known}.`,
-      `Stories told in this theatre before tonight: ${e.tales}.`,
-    ];
+    const lines = ['A new story in the theatre.'];
+    if (e.night) {
+      const m = moonOf(e.night);
+      lines.push(
+        m.phase === 'full'
+          ? `This is night ${e.night} in this theatre, and the moon is full: tell a Full Moon Tale, a grand story in which as many of the player's creatures as you can come back, ending in a celebration.`
+          : `This is night ${e.night} in this theatre. The moon is a ${m.phase} moon, ${m.toFull} ${m.toFull === 1 ? 'night' : 'nights'} from full.`,
+      );
+    }
+    if (when) lines.push(when);
+    lines.push(`Creatures this player already knows how to make: ${known}.`);
+    if (e.hands === 1) {
+      const one = CREATURE_IDS.filter((id) => CAST[id].hands === 1).join(', ');
+      lines.push(`This player plays one-handed: ask only for one-handed creatures (${one}) or "any".`);
+    }
+    lines.push(`Stories told in this theatre before tonight: ${e.tales}.`);
     if (saga.length) {
       lines.push('Earlier tales, oldest first:');
       for (const t of saga) lines.push(`- "${t.title}": ${t.summary}`);
     }
+    const promised = e.keep === 'last' ? saga[saga.length - 1]?.promise : e.keep ? teaser(e.keep.quest, e.keep.who) : undefined;
+    if (promised) lines.push(`Last time, you promised: "${promised}" Tonight's story keeps that promise.`);
     lines.push("Begin tonight's story: the opening beat, ending with your first ask.");
     return lines.join('\n');
   }

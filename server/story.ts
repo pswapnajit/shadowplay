@@ -70,8 +70,18 @@ function sameMac(data: string, sig: unknown): boolean {
 }
 export const signTurn = (content: unknown[]): SignedTurn => ({ content, sig: mac(`turn:${JSON.stringify(content)}`) });
 const turnValid = (t: SignedTurn) => Array.isArray(t.content) && sameMac(`turn:${JSON.stringify(t.content)}`, t.sig);
-export const signTale = (title: string, summary: string): SignedTale => ({ title, summary, sig: mac(`tale:${title}\n${summary}`) });
-const taleValid = (t: SignedTale) => typeof t.title === 'string' && typeof t.summary === 'string' && sameMac(`tale:${t.title}\n${t.summary}`, t.sig);
+/** A finished tale, with its promise for the next night: signed together, so the promise is the Lantern's own words. */
+export const signTale = (title: string, summary: string, promise = ''): SignedTale => ({
+  title,
+  summary,
+  ...(promise ? { promise } : {}),
+  sig: mac(`tale:${title}\n${summary}\n${promise}`),
+});
+const taleValid = (t: SignedTale) =>
+  typeof t.title === 'string' &&
+  typeof t.summary === 'string' &&
+  (t.promise === undefined || typeof t.promise === 'string') &&
+  sameMac(`tale:${t.title}\n${t.summary}\n${t.promise ?? ''}`, t.sig);
 
 // --- rate limiting (best effort: per warm instance) -------------------------------
 const windows = new Map<string, number[]>();
@@ -114,8 +124,12 @@ export function validateRequest(body: unknown): ValidRequest | string {
   }
   const turns = b.turns as SignedTurn[];
   if (!turns.every((t) => t && typeof t === 'object' && turnValid(t))) return 'A previous beat failed its signature check.';
-  const saga = Array.isArray(b.saga) ? (b.saga as SignedTale[]).slice(-LIMITS.sagaTales) : [];
-  if (!saga.every((t) => t && typeof t === 'object' && taleValid(t))) return 'An earlier tale failed its signature check.';
+  // Earlier tales that fail their signature are left out rather than refused: a stale or
+  // edited Book of Shadows shouldn't cost the player tonight's story.
+  const saga = Array.isArray(b.saga) ? (b.saga as SignedTale[]).slice(-LIMITS.sagaTales).filter((t) => t && typeof t === 'object' && taleValid(t)) : [];
+  // Keeping "the last tale's promise" only makes sense if that tale came through.
+  const open = events[0] as Extract<StoryEvent, { type: 'open' }>;
+  if (open.keep === 'last' && !saga[saga.length - 1]?.promise) delete open.keep;
   return { events, turns, saga };
 }
 
@@ -253,7 +267,7 @@ export async function handleStory(request: Request, deps: StoryDeps = {}): Promi
       for (const step of beat.script.slice(sent)) emit({ type: 'step', step });
       emit({ type: 'next', next: beat.next });
       const turn = signTurn(msg.content as unknown[]);
-      const tale = 'end' in beat.next ? signTale(beat.next.end, beat.next.summary) : undefined;
+      const tale = 'end' in beat.next ? signTale(beat.next.end, beat.next.summary, beat.next.tomorrow) : undefined;
       emit({ type: 'turn', turn, ...(tale ? { tale } : {}) });
       emit({ type: 'done', ms: Date.now() - t0, model: msg.model });
     } catch (error) {

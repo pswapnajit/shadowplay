@@ -4,6 +4,7 @@
 
 import { CanvasTexture, DoubleSide, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
 import type { Stage } from '../core/shadow-geom.js';
+import { state } from './state.js';
 
 export class WallText {
   readonly mesh: Mesh;
@@ -13,6 +14,7 @@ export class WallText {
   private readonly mat: MeshBasicMaterial;
   private current = '';
   private sub = '';
+  private contrast = false;
   opacity = 0;
   target = 0;
 
@@ -40,6 +42,11 @@ export class WallText {
 
   /** Places the panel on the wall at wall coordinates (u, v). */
   place(stage: Stage, u: number, v: number): void {
+    this.mesh.scale.setScalar(state.settings.bigText ? 1.2 : 1);
+    if (this.contrast !== state.settings.highContrast) {
+      this.contrast = state.settings.highContrast;
+      if (this.current) this.paint();
+    }
     const R = stage.wallRight;
     const U = stage.wallUp;
     const N = stage.wallNormal;
@@ -92,11 +99,21 @@ export class WallText {
     ctx.shadowColor = 'rgba(255, 190, 110, 0.9)';
     ctx.shadowBlur = h * 0.08;
     ctx.fillStyle = '#fff1d6';
+    // High contrast: a dark edge keeps the words legible against the bright pool.
+    const edge = (text: string, y: number, width: number) => {
+      if (!this.contrast) return;
+      ctx.lineWidth = width;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(12, 7, 3, 0.9)';
+      ctx.strokeText(text, w / 2, y);
+    };
+    edge(this.current, this.sub ? h * 0.38 : h * 0.52, 6);
     ctx.fillText(this.current, w / 2, this.sub ? h * 0.38 : h * 0.52);
     if (this.sub) {
       ctx.shadowBlur = h * 0.05;
       fit(this.sub, Math.round(h * 0.17), '');
       ctx.fillStyle = 'rgba(255, 236, 200, 0.92)';
+      edge(this.sub, h * 0.8, 3.5);
       ctx.fillText(this.sub, w / 2, h * 0.8);
     }
     this.tex.needsUpdate = true;

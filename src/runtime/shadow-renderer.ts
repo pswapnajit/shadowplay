@@ -29,6 +29,7 @@ import {
   ShaderMaterial,
   UnsignedByteType,
   Vector2,
+  Vector3,
   Vector4,
   WebGLRenderTarget,
   type WebGLRenderer,
@@ -215,8 +216,14 @@ export class ShadowRenderer {
         // x rain, y snow, z fireflies, w lightning flash
         uWeather: { value: new Vector4(0, 0, 0, 0) },
         uMoon: { value: new Vector2(-0.82, 0.8) },
+        // How much of the moon is lit (it waxes night by night; 1 = full).
+        uMoonLit: { value: 1 },
         // Wind: the lantern sways, and every shadow with it (wall metres).
         uSway: { value: new Vector2(0, 0) },
+        // Look to choose: the ring filling around what the player is looking at (x, y, radius, progress)…
+        uGaze: { value: new Vector4(0, 0, 0, 0) },
+        // …and a soft dot where they're looking (x, y, strength).
+        uGazeDot: { value: new Vector3(0, 0, 0) },
       },
       vertexShader: /* glsl */ `
         uniform float uS;
@@ -242,7 +249,10 @@ export class ShadowRenderer {
         uniform vec4 uSky;
         uniform vec4 uWeather;
         uniform vec2 uMoon;
+        uniform float uMoonLit;
         uniform vec2 uSway;
+        uniform vec4 uGaze;
+        uniform vec3 uGazeDot;
         varying vec2 vP;
 
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -327,7 +337,9 @@ export class ShadowRenderer {
           float flick = 0.94 + 0.04 * sin(uTime * 7.3) + 0.03 * sin(uTime * 13.1 + 1.7) + 0.02 * noise(vec2(uTime * 3.0, 0.0));
           float r = length(vP - uPool.xy - uSway * 0.7) / uPool.z;
           float pool = (1.0 - smoothstep(0.5, 1.0, r + 0.05 * (noise(vP * 3.0) - 0.5))) * uPool.w;
-          float grain = 0.92 + 0.08 * noise(vP * 90.0);
+          // High contrast: a brighter, even light; darker, crisper shadows; a bolder outline.
+          float hc = clamp(uContrast - 1.0, 0.0, 1.0);
+          float grain = mix(0.92 + 0.08 * noise(vP * 90.0), 1.0, hc);
 
           // Weather falls between the lantern and the wall, so it casts shadows too.
           if (uWeather.x > 0.004) shadow = max(shadow, rainField(vP, uTime) * 0.5 * uWeather.x);
@@ -341,7 +353,7 @@ export class ShadowRenderer {
           vec2 tuv = q / uExtent + 0.5;
           float inBounds = step(0.0, tuv.x) * step(tuv.x, 1.0) * step(0.0, tuv.y) * step(tuv.y, 1.0);
           float sdf = (texture2D(uTarget, tuv).r - 0.5) * 0.5; // normalised units
-          float band = 1.0 - smoothstep(0.010, 0.026, abs(sdf));
+          float band = 1.0 - smoothstep(mix(0.010, 0.018, hc), mix(0.026, 0.038, hc), abs(sdf));
           // a soft highlight that travels around the outline while searching
           float shimmer = mix(0.62 + 0.38 * sin(uTime * 2.4 - atan(q.y, q.x) * 2.0), 1.0, smoothstep(0.4, 0.9, uGlow));
           float outline = band * shimmer * uTVis * inBounds;
@@ -351,14 +363,17 @@ export class ShadowRenderer {
           // (moonlight blue at the edges, the lantern's own warmth kept at the centre)
           vec3 warm = mix(vec3(1.0, 0.80, 0.52), vec3(0.62, 0.72, 1.0), uSky.x * 0.6 * smoothstep(0.15, 0.95, r));
           warm = mix(warm, vec3(1.0, 0.74, 0.62), uSky.y * 0.5);
-          float lit = pool * 0.34 * flick * grain * (1.0 - 0.2 * uSky.x + 0.25 * uSky.y);
+          float lit = pool * mix(0.34, 0.46, hc) * mix(flick, 1.0, hc) * grain * (1.0 - 0.2 * uSky.x + 0.25 * uSky.y);
           float dark = shadow * pool;
-          float shadowAlpha = mix(0.72, 0.9, uContrast - 1.0);
+          float shadowAlpha = mix(0.72, 0.97, hc);
 
           // Lights in the sky above the stage: the moon, stars, fireflies, dawn.
           float md = length(vP - uMoon);
           float moon = (1.0 - smoothstep(0.1, 0.112, md)) * (0.88 + 0.12 * noise((vP - uMoon) * 22.0)) * uSky.w;
-          float moonHalo = exp(-md * md / 0.05) * 0.35 * uSky.w;
+          // A waxing moon: the dark disc slides off to the left night by night, leaving the lit side on the right.
+          float shadeD = length(vP - uMoon + vec2(0.224 * uMoonLit, 0.0));
+          moon *= 1.0 - (1.0 - smoothstep(0.1, 0.112, shadeD)) * 0.9;
+          float moonHalo = exp(-md * md / 0.05) * 0.35 * uSky.w * (0.35 + 0.65 * uMoonLit);
           float stars = uSky.z > 0.004 ? starField(vP, uTime) * uSky.z * (1.0 - pool * 0.8) : 0.0;
           float flies = uWeather.z > 0.004 ? fireflyField(vP, uTime) * uWeather.z : 0.0;
           // Sky lights fade out towards the stage's edges, so the plane's square never shows.
@@ -375,6 +390,16 @@ export class ShadowRenderer {
           vec3 flyCol = vec3(0.85, 1.0, 0.45);
           vec3 dawnCol = vec3(1.0, 0.6, 0.42);
           vec3 boltCol = vec3(0.86, 0.9, 1.0);
+
+          // Look to choose: a gold ring fills clockwise from the top while the player looks.
+          vec2 gp = vP - uGaze.xy;
+          float gd = length(gp);
+          float ringBand = (1.0 - smoothstep(0.005, 0.011, abs(gd - uGaze.z))) * step(0.001, uGaze.z);
+          float sweep = step(fract(atan(gp.x, gp.y) / 6.2831853 + 1.0), uGaze.w);
+          float ring = ringBand * (0.28 + 0.72 * sweep);
+          vec2 dp = vP - uGazeDot.xy;
+          float gazeDot = (exp(-dot(dp, dp) / 0.00012) * 0.8 + exp(-dot(dp, dp) / 0.0012) * 0.25) * uGazeDot.z;
+          vec3 ringCol = vec3(1.0, 0.88, 0.58);
 
           vec3 col = warm;
           float a = lit * (1.0 - dark) + dark * shadowAlpha;
@@ -401,6 +426,8 @@ export class ShadowRenderer {
             base += moonCol * moonHalo * 0.35 + dawnCol * dawnGlow * 0.5 + vec3(1.0, 0.95, 0.85) * stars * 0.8 + flyCol * flies * 0.9;
             base = mix(base, moonCol * 0.92, clamp(moon, 0.0, 1.0));
             base = mix(base, boltCol, bolt * 0.4);
+            base = mix(base, ringCol, clamp(ring, 0.0, 1.0));
+            base = mix(base, ringCol, clamp(gazeDot, 0.0, 1.0) * 0.8);
             gl_FragColor = vec4(base, 1.0);
             return;
           }
@@ -410,6 +437,8 @@ export class ShadowRenderer {
           over(col, a, vec3(1.0, 0.95, 0.85), stars);
           over(col, a, flyCol, flies);
           over(col, a, boltCol, bolt * 0.42);
+          over(col, a, ringCol, ring * 0.9);
+          over(col, a, ringCol, gazeDot * 0.7);
           gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
         }`,
       transparent: true,

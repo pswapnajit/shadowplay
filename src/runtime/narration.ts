@@ -5,6 +5,7 @@
 
 import { CanvasTexture, DoubleSide, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from '@iwsdk/core';
 import type { Stage } from '../core/shadow-geom.js';
+import { state } from './state.js';
 
 const W = 1280;
 const H = 300;
@@ -57,6 +58,7 @@ export class NarrationPanel {
   }
 
   place(stage: Stage, u: number, v: number): void {
+    this.mesh.scale.setScalar(state.settings.bigText ? 1.25 : 1);
     const R = stage.wallRight;
     const U = stage.wallUp;
     const N = stage.wallNormal;
@@ -207,6 +209,13 @@ export class NarrationPanel {
       ctx.fillText('·  ·  ·', W / 2, H / 2);
     } else {
       ctx.font = `italic ${this.fontPx}px ${FONT}`;
+      if (state.settings.highContrast) {
+        // a dark edge keeps every word legible against the bright pool
+        ctx.lineWidth = 5;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(12, 7, 3, 0.9)';
+        for (let i = 0; i < this.shown; i++) ctx.strokeText(this.words[i], this.pos[i].x, this.pos[i].y);
+      }
       for (let i = 0; i < this.shown; i++) ctx.fillText(this.words[i], this.pos[i].x, this.pos[i].y);
     }
     this.tex.needsUpdate = true;

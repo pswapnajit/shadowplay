@@ -25,9 +25,16 @@ export interface Settings {
   highContrast: boolean;
   muted: boolean;
   captions: boolean;
+  /** Comfort and access (see access.ts). */
+  gentle: boolean;
+  oneHand: boolean;
+  look: boolean;
+  calm: boolean;
+  bigText: boolean;
 }
 
-export const MAX_SEGMENTS = 512;
+/** Shadow capsules drawn per frame: two hands (92), a full shelf (125), tonight's cast and the keepsake garland (~150). */
+export const MAX_SEGMENTS = 768;
 
 function makeHand(side: Side): HandFrame {
   return {
@@ -73,10 +80,18 @@ export const state = {
     highContrast: false,
     muted: false,
     captions: true,
+    gentle: false,
+    oneHand: false,
+    look: false,
+    calm: false,
+    bigText: false,
   } as Settings,
 
   /** Desktop preview: draw a virtual plaster wall behind the shadows. */
   virtualWall: true,
+
+  /** True while someone is playing (an immersive session, or webcam mode), not just looking at the landing page. */
+  audience: false,
 
   /**
    * Holds every system still (recording: the demo video is captured in

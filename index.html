@@ -175,6 +175,75 @@
         font-size: 12px;
         opacity: 0.6;
       }
+      #tonight {
+        margin: 14px auto 0;
+        max-width: 520px;
+        font-size: 15px;
+        color: var(--dim);
+      }
+      #tonight .moon {
+        color: var(--gold);
+      }
+      #tonight q {
+        display: block;
+        margin-top: 4px;
+        font-style: italic;
+        color: var(--cream);
+      }
+      #access {
+        margin: 14px auto 0;
+        max-width: 520px;
+        text-align: left;
+        color: var(--dim);
+        font-size: 15px;
+      }
+      #access summary {
+        cursor: pointer;
+        text-align: center;
+        color: var(--gold);
+        font-style: italic;
+        list-style: none;
+      }
+      #access summary::-webkit-details-marker {
+        display: none;
+      }
+      #access .opts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px 18px;
+        margin: 10px 0 0;
+        padding: 14px 16px;
+        border-radius: 14px;
+        background: rgba(20, 13, 8, 0.72);
+        border: 1px solid rgba(243, 201, 122, 0.25);
+      }
+      #access label {
+        display: grid;
+        grid-template-columns: 20px 1fr;
+        gap: 2px 8px;
+        align-items: start;
+        cursor: pointer;
+      }
+      #access input {
+        accent-color: var(--gold);
+        width: 18px;
+        height: 18px;
+        margin: 2px 0 0;
+      }
+      #access .l {
+        color: var(--cream);
+      }
+      #access .d {
+        grid-column: 2;
+        font-size: 12.5px;
+        line-height: 1.35;
+        opacity: 0.75;
+      }
+      @media (max-width: 520px) {
+        #access .opts {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
@@ -188,7 +257,12 @@
           <button id="webcam" class="ghost">Try with your webcam</button>
         </div>
         <label class="aloud" id="aloud" hidden><input type="checkbox" id="read-aloud" /> The Lantern reads the story aloud</label>
+        <details id="access">
+          <summary>Comfort &amp; access</summary>
+          <div class="opts"></div>
+        </details>
         <small>Best on Meta Quest with hand tracking, seated, facing a wall. No controllers needed. <span id="teller"></span></small>
+        <p id="tonight" hidden></p>
         <details id="book" hidden>
           <summary></summary>
           <ol></ol>

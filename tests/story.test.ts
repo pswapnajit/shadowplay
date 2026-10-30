@@ -81,7 +81,9 @@ function playOffline(answer: (asked: string, i: number) => StoryEvent): Beat[] {
   const beats: Beat[] = [];
   for (let i = 0; i < 12; i++) {
     const beat = teller.beat(events);
-    expect(parseBeat(JSON.parse(JSON.stringify(beat)))).toEqual(beat);
+    // Everything the understudy says is valid protocol (its private plan for tomorrow isn't part of the wire format).
+    const { plan: _plan, ...wire } = beat.next as { plan?: unknown };
+    expect(parseBeat(JSON.parse(JSON.stringify(beat)))).toEqual({ ...beat, next: wire });
     beats.push(beat);
     if ('end' in beat.next) break;
     events.push(answer(beat.next.ask, i));

@@ -6,7 +6,7 @@
  * whatever the player actually makes.
  */
 
-import { CAST, type Beat, type CreatureId, type Cue, type Next, type Step, type StoryEvent } from './protocol.js';
+import { CAST, type Beat, type CreatureId, type Cue, type Ending, type Keepsake, moonOf, type Next, type Step, type StoryEvent, teaser, TEASERS } from './protocol.js';
 
 const NAME: Record<CreatureId, string> = {
   bird: 'the Chatterbird',
@@ -73,12 +73,14 @@ const SETTINGS: Setting[] = [
   },
 ];
 
+/** The understudy's tales. Their order matches TEASERS, the promises it makes for them. */
 interface Quest {
   problem: string;
   goal: string;
   title: string;
   ending: string;
   summary: string;
+  keepsake: Keepsake;
 }
 const QUESTS: Quest[] = [
   {
@@ -87,6 +89,7 @@ const QUESTS: Quest[] = [
     title: '{L} and the Missing Moon',
     ending: 'There it was, in the very last puddle on the road, shining up at them as if nothing had happened.',
     summary: "{L} and friends searched all night for the moon's lost reflection and found it in the last puddle on the road.",
+    keepsake: 'moon',
   },
   {
     problem: '{L} had found a fallen star in the grass, still warm, and it was getting dimmer.',
@@ -94,6 +97,7 @@ const QUESTS: Quest[] = [
     title: '{L} and the Fallen Star',
     ending: 'At the top of the hill they let it go, and the star climbed back into the sky, blinking thank you.',
     summary: '{L} found a fallen star and, with some help, carried it up the hill until it could climb back into the sky.',
+    keepsake: 'star',
   },
   {
     problem: '{L} wanted to see the sea before morning, but nobody knew the way.',
@@ -101,6 +105,7 @@ const QUESTS: Quest[] = [
     title: '{L} Goes to the Sea',
     ending: 'Just as the sky turned pink, they heard it: the sea, breathing in and out, like someone fast asleep.',
     summary: '{L} set out to see the sea before morning and arrived, with friends, just as the sun came up.',
+    keepsake: 'shell',
   },
   {
     problem: "{L} couldn't sleep, because somewhere, somebody was crying very softly.",
@@ -108,8 +113,16 @@ const QUESTS: Quest[] = [
     title: '{L} and the Small Sad Sound',
     ending: 'It was only the old windmill, lonely on its hill. They sat with it until it creaked a happy creak.',
     summary: '{L} followed a small sad sound through the night and found a lonely old windmill that needed company.',
+    keepsake: 'bell',
   },
 ];
+
+/** On full-moon nights the old friends of the theatre come back. */
+const FULL_MOON: Setting = {
+  lines: ['The moon was full tonight, and on full-moon nights, everyone comes back.', 'One by one, the old friends of the theatre began to arrive.'],
+  cue: 'moon',
+  prompt: 'Who came first?',
+};
 
 const WEATHER: { cue: Cue; line: string }[] = [
   { cue: 'rain', line: 'Then the sky grumbled, and the rain came down in long silver threads.' },
@@ -128,12 +141,18 @@ export class OfflineTeller {
   private cast: CreatureId[] = [];
   private known: CreatureId[] = [];
   private asks = 0;
+  private questNo: number;
+  private oneHand = false;
+  private fullMoon = false;
+  /** Tonight keeps last night's promise: this creature leads the promised tale. */
+  private promised: CreatureId | null = null;
 
   constructor(seed = Date.now()) {
     let s = seed >>> 0 || 1;
     this.rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
     this.setting = this.pick(SETTINGS);
-    this.quest = this.pick(QUESTS);
+    this.questNo = Math.floor(this.rnd() * QUESTS.length);
+    this.quest = QUESTS[this.questNo];
     this.weather = this.pick(WEATHER);
   }
 
@@ -151,8 +170,26 @@ export class OfflineTeller {
     const offstage = (id: CreatureId) => !this.cast.includes(id);
     const known = this.known.filter(offstage);
     const fresh = (Object.keys(CAST) as CreatureId[]).filter((id) => offstage(id) && !this.known.includes(id) && CAST[id].difficulty < 3);
-    const pool = prefer === 'new' ? (fresh.length ? fresh : known) : known.length ? known : fresh;
+    const fits = (id: CreatureId) => !this.oneHand || CAST[id].hands === 1;
+    const pool = (prefer === 'new' && !this.fullMoon ? (fresh.length ? fresh : known) : known.length ? known : fresh).filter(fits);
     return pool.length ? this.pick(pool) : 'rabbit';
+  }
+
+  /** The end of the tale: its title, a keepsake, and a promise for tomorrow night. */
+  private ending(): Ending {
+    const lead = this.lead ?? 'rabbit';
+    const others = TEASERS.map((_, i) => i).filter((i) => i !== this.questNo);
+    const quest = others[Math.floor(this.rnd() * others.length)];
+    // Tomorrow's lead: one of tonight's friends, so the next tale picks up a thread.
+    const friends = this.cast.filter((id) => id !== lead);
+    const who = friends.length ? this.pick(friends) : lead;
+    return {
+      end: this.quest.title.replace('{L}', titled(lead)),
+      summary: this.fill(this.quest.summary),
+      keepsake: this.quest.keepsake,
+      tomorrow: teaser(quest, who),
+      plan: { quest, who },
+    };
   }
 
   /** The beat answering the latest event. `events[0]` must be the opening. */
@@ -160,6 +197,19 @@ export class OfflineTeller {
     const e = events[events.length - 1];
     if (e.type === 'open') {
       this.known = e.known;
+      this.oneHand = e.hands === 1;
+      this.fullMoon = !!e.night && moonOf(e.night).phase === 'full';
+      if (this.fullMoon) this.setting = FULL_MOON;
+      if (e.keep && e.keep !== 'last') {
+        // Last night's promise: that tale, led by that creature.
+        this.questNo = e.keep.quest;
+        this.quest = QUESTS[this.questNo];
+        this.promised = e.keep.who;
+        return {
+          script: [say(`Last time, I promised you a story about ${NAME[e.keep.who]}. Here it is.`), say(this.setting.lines[0]), { cue: this.setting.cue }],
+          next: { ask: e.keep.who, prompt: `Where was ${NAME[e.keep.who]}?` },
+        };
+      }
       return { script: [say(this.setting.lines[0]), { cue: this.setting.cue }, say(this.setting.lines[1])], next: { ask: 'any', prompt: this.setting.prompt } };
     }
     this.asks++;
@@ -194,10 +244,13 @@ export class OfflineTeller {
     }
     // The ending.
     const finale: Step[] = [{ cue: 'calm' }, say(this.quest.ending), { cue: 'dawn' }];
+    if (this.fullMoon) {
+      finale.push(say('And because the moon was full, everybody danced until the sky went pink.'));
+      for (const id of this.cast) finale.push({ who: id, does: 'dance' });
+    }
     for (const id of this.cast) finale.push({ who: id, does: 'bow' });
     finale.push(say('And everyone went home to bed, except the Lantern, who stayed up to remember it all.'));
-    const next: Next = { end: this.quest.title.replace('{L}', titled(this.lead)), summary: this.fill(this.quest.summary) };
-    return { script: [...script, ...finale], next };
+    return { script: [...script, ...finale], next: this.ending() };
   }
 
   /**
@@ -212,9 +265,7 @@ export class OfflineTeller {
   /** The ask (or ending) after a beat whose storyteller went quiet halfway through. */
   bridge(events: StoryEvent[]): Next {
     for (let i = 1; i <= events.length; i++) this.beat(events.slice(0, i));
-    if (this.asks >= 3 && this.lead) {
-      return { end: this.quest.title.replace('{L}', titled(this.lead)), summary: this.fill(this.quest.summary) };
-    }
+    if (this.asks >= 3 && this.lead) return this.ending();
     return { ask: 'any', prompt: 'Who came next?' };
   }
 }
