@@ -194,4 +194,42 @@ export class ShapeMatcher {
     r.frame.area = this.frame.area;
     return r;
   }
+
+  private readonly many: MatchResult[] = [];
+
+  /**
+   * Scores one live shadow against several targets, rasterising it once per
+   * angle instead of once per angle per target. Results line up with
+   * `targets` (valid until the next call); null when there is no shadow.
+   */
+  matchAll(segs: Float32Array, count: number, targets: readonly Target[]): readonly MatchResult[] | null {
+    if (count === 0 || !measureShape(segs, count, this.frame)) return null;
+    if (this.norm.length < count * SEG_STRIDE) this.norm = new Float32Array(count * SEG_STRIDE);
+    while (this.many.length < targets.length) this.many.push({ iou: 0, angle: 0, mirror: false, frame: { cx: 0, cy: 0, scale: 1, area: 0 } });
+    for (let i = 0; i < targets.length; i++) this.many[i].iou = -1;
+    for (let mi = 0; mi < 2; mi++) {
+      const mirror = mi === 1;
+      for (const a of ANGLES) {
+        normaliseSegments(segs, count, this.frame, a, mirror, this.norm);
+        rasterize(this.norm, count, this.grid.clear(), false);
+        for (let i = 0; i < targets.length; i++) {
+          const v = iou(this.grid, targets[i].mask);
+          const r = this.many[i];
+          if (v > r.iou) {
+            r.iou = v;
+            r.angle = a;
+            r.mirror = mirror;
+          }
+        }
+      }
+    }
+    for (let i = 0; i < targets.length; i++) {
+      const f = this.many[i].frame;
+      f.cx = this.frame.cx;
+      f.cy = this.frame.cy;
+      f.scale = this.frame.scale;
+      f.area = this.frame.area;
+    }
+    return this.many;
+  }
 }

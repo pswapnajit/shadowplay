@@ -11,7 +11,8 @@ import { CREATURE_BY_ID, CREATURES, type CreatureDef } from '../core/creatures.j
 import { J } from '../core/hand-data.js';
 import { type MatchResult, ShapeMatcher, type Target } from '../core/match.js';
 import { RIG_HEIGHT, RIGS, SegWriter } from '../core/rigs.js';
-import { creatureTarget } from '../core/targets.js';
+import { fingerShape, fingersFit } from '../core/fingers.js';
+import { creatureTarget, decoyTargets, specJoints } from '../core/targets.js';
 import type { Action, Ask, CreatureId } from '../story/protocol.js';
 import { audio } from './audio.js';
 import { state, TOLERANCE_IOU } from './state.js';
@@ -70,7 +71,12 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   phase: Phase = 'idle';
   private phaseT = 0;
   private targets = new Map<string, Target>();
+  /** Hands that aren't making anything (open, relaxed, fist…): a creature must beat them to wake. */
+  private decoys: Target[] = decoyTargets();
   private matcher = new ShapeMatcher();
+  private poolTargets: Target[] = [];
+  /** One-handed shapes: which fingers each needs curled or straight (an open hand isn't a rabbit, a fist isn't a bird). */
+  private fingers = new Map<string, number[]>();
   private order: CreatureDef[] = CREATURES;
   private idx = 0;
   private living: Living[] = [];
@@ -118,7 +124,10 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   private shelfDim = 1;
 
   init(): void {
-    for (const c of CREATURES) this.targets.set(c.id, creatureTarget(c));
+    for (const c of CREATURES) {
+      this.targets.set(c.id, creatureTarget(c));
+      if (c.hands.length === 1) this.fingers.set(c.id, fingerShape(specJoints(c.hands[0])));
+    }
     this.load();
     this.title = new WallText(1.2);
     this.caption = new WallText(1.0);
@@ -212,6 +221,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   }
 
   update(delta: number, time: number): void {
+    if (state.frozen) return;
     const stage = state.stage;
     const r = this.theatre?.shadows;
     if (!stage || !r) return;
@@ -384,15 +394,32 @@ export class GameSystem extends createSystem({}) implements StoryHost {
               : want
                 ? [want, ...this.order.filter((c) => c !== want && this.collected.has(c.id))]
                 : this.order;
-        for (const c of pool) {
-          const res = this.matcher.match(state.handSegs, state.handSegCount, this.targets.get(c.id)!);
-          if (res && res.iou > bestIou) {
-            secondIou = bestIou;
-            bestIou = res.iou;
-            bestDef = c;
-            bestRes = { ...res, frame: { ...res.frame } };
-          } else if (res && res.iou > secondIou) {
-            secondIou = res.iou;
+        const targets = this.poolTargets;
+        targets.length = 0;
+        for (const c of pool) targets.push(this.targets.get(c.id)!);
+        targets.push(...this.decoys);
+        const results = this.matcher.matchAll(state.handSegs, state.handSegCount, targets);
+        if (results) {
+          let decoy = 0;
+          for (let i = pool.length; i < targets.length; i++) decoy = Math.max(decoy, results[i].iou);
+          for (let i = 0; i < pool.length; i++) {
+            const c = pool[i];
+            const res = results[i];
+            // A hand that looks more like a resting hand than this creature wakes nobody.
+            // The creature being taught or asked for gets some benefit of the doubt.
+            const taught = mode === 'seek' || c === want;
+            let v = res.iou > decoy - (taught ? 0.05 : 0) ? res.iou : Math.min(res.iou, 0.45);
+            // The joints must agree with the shape: an open hand isn't a rabbit, a fist isn't a bird.
+            const shape = this.fingers.get(c.id);
+            if (shape && !state.hands.some((h) => h.tracked && fingersFit(shape, h.joints))) v = Math.min(v, 0.45);
+            if (v > bestIou) {
+              secondIou = bestIou;
+              bestIou = v;
+              bestDef = c;
+              bestRes = { ...res, frame: { ...res.frame } };
+            } else if (v > secondIou) {
+              secondIou = v;
+            }
           }
         }
       }

@@ -230,6 +230,7 @@ export class TheatreSystem extends createSystem({
   }
 
   update(delta: number, time: number): void {
+    if (state.frozen) return;
     this.time = time;
     this.updateHead();
     // If the player shifts seats or stands up, bring the theatre with them.
@@ -531,6 +532,7 @@ export class ShadowDrawSystem extends createSystem({}) {
   theatre: TheatreSystem | null = null;
 
   update(_delta: number, time: number): void {
+    if (state.frozen) return;
     const t = this.theatre;
     const stage = state.stage;
     if (!t || !stage) return;

@@ -13,6 +13,7 @@ import { DirectorSystem } from './runtime/director.js';
 import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
 import { setOnLanternLit, ShadowDrawSystem, TheatreSystem } from './runtime/theatre.js';
+import { storyEndpoint } from './runtime/story-mode.js';
 import { webcam } from './runtime/webcam.js';
 
 World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
@@ -134,6 +135,10 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
     demo.perform(null);
     void webcam.start();
   });
+
+  document.getElementById('teller')!.textContent = storyEndpoint()
+    ? 'Stories are improvised live by Claude.'
+    : 'Every night the Lantern tells a new story.';
 
   // The Book of Shadows: every tale told on this device, newest first.
   const showBook = () => {

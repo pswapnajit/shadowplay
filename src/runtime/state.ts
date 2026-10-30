@@ -77,6 +77,12 @@ export const state = {
 
   /** Desktop preview: draw a virtual plaster wall behind the shadows. */
   virtualWall: true,
+
+  /**
+   * Holds every system still (recording: the demo video is captured in
+   * segments, and freezing between them makes the cuts seamless).
+   */
+  frozen: false,
 };
 
 /** IoU needed to wake a creature (one-hand shapes; two-hand shapes get 0.06 less). Calibrated in tools/calibrate.ts. */

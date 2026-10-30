@@ -146,6 +146,7 @@ export class DirectorSystem extends createSystem({}) {
   }
 
   update(delta: number): void {
+    if (state.frozen) return;
     if (this.t < 0 || this.t >= this.until) return;
     if (this.story) {
       this.t += Math.min(delta, 0.05);
