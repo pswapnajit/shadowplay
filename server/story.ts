@@ -31,8 +31,10 @@ type Msg = Anthropic.Beta.BetaMessageParam;
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
 const DEFAULT_ORIGINS = ['https://pswapnajit.github.io'];
-function originAllowed(origin: string | null): boolean {
+function originAllowed(origin: string | null, host: string | null = null): boolean {
   if (!origin) return false;
+  // The game served from this same deployment, whatever its domain.
+  if (host && /^https:\/\//.test(origin) && new URL(origin).host === host) return true;
   const extra = (env('STORY_ORIGINS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (DEFAULT_ORIGINS.includes(origin) || extra.includes(origin)) return true;
   // Local development (the IWSDK dev server) and this project's own Vercel deployments.
@@ -40,8 +42,16 @@ function originAllowed(origin: string | null): boolean {
   return /^https:\/\/shadowplay[a-z0-9-]*\.vercel\.app$/.test(origin);
 }
 
-function cors(origin: string | null): Record<string, string> {
-  return originAllowed(origin)
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+function cors(origin: string | null, host: string | null = null): Record<string, string> {
+  return originAllowed(origin, host)
     ? {
         'Access-Control-Allow-Origin': origin!,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -153,13 +163,14 @@ export interface StoryDeps {
 
 export async function handleStory(request: Request, deps: StoryDeps = {}): Promise<Response> {
   const origin = request.headers.get('origin');
-  const headers = cors(origin);
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? hostOf(request.url);
+  const headers = cors(origin, host);
   const json = (data: ServerEvent, status: number) =>
     new Response(`${JSON.stringify(data)}\n`, { status, headers: { ...headers, 'Content-Type': 'application/json' } });
 
-  if (request.method === 'OPTIONS') return new Response(null, { status: originAllowed(origin) ? 204 : 403, headers });
+  if (request.method === 'OPTIONS') return new Response(null, { status: originAllowed(origin, host) ? 204 : 403, headers });
   if (request.method !== 'POST') return json({ type: 'error', code: 'invalid', message: 'POST a story request.' }, 405);
-  if (!originAllowed(origin)) return json({ type: 'error', code: 'invalid', message: 'Origin not allowed.' }, 403);
+  if (!originAllowed(origin, host)) return json({ type: 'error', code: 'invalid', message: 'Origin not allowed.' }, 403);
 
   const apiKey = env('ANTHROPIC_API_KEY');
   if (!apiKey || env('STORY_DISABLED') === '1') {

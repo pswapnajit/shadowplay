@@ -205,6 +205,11 @@ describe('story server', () => {
     expect(validateRequest({ v: 1, events: [open, ...turns.map(() => made)], turns })).toMatch(/over/);
     const pre = await handleStory(new Request('https://x/api/story', { method: 'OPTIONS', headers: { origin: 'http://localhost:8081' } }));
     expect(pre.status).toBe(204);
+    // The game served from the same deployment is always welcome, whatever the domain.
+    const own = await handleStory(new Request('https://my-theatre.vercel.app/api/story', { method: 'OPTIONS', headers: { origin: 'https://my-theatre.vercel.app' } }));
+    expect(own.status).toBe(204);
+    const other = await handleStory(new Request('https://my-theatre.vercel.app/api/story', { method: 'OPTIONS', headers: { origin: 'https://not-my-theatre.vercel.app' } }));
+    expect(other.status).toBe(403);
   });
 
   it('reports a cut-off beat instead of half a story', async () => {
