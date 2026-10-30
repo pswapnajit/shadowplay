@@ -6,12 +6,10 @@ Deadline: **Nov 18, 2026, 12:00 PT = Nov 19, 01:30 IST.** Aim to submit by Nov 1
 - [ ] **Meta VR Start program membership.** Apply from the competition page ("If you're not already a member of the Start program, apply now"). It's required *by the time of submission*. Use the same Meta developer account you already have.
 - [ ] **Join the hackathon** on https://start-developer-competition-26.devpost.com/ ("Join hackathon").
 
-## 2. Turn on the Lantern (story mode)
-Until this is done, stories are told by the offline understudy.
-- [ ] Vercel → **Add New → Project → Import** `pswapnajit/shadowplay`. Keep the detected Vite settings.
-- [ ] Add the environment variable **`ANTHROPIC_API_KEY`** (Production), then **Deploy**.
-- [ ] In the Anthropic Console, set a **monthly spend limit** on the key (about $50 is plenty; one story costs a few cents).
-- [ ] Tell Claude the deployment URL, or let it find the URL in the repo's GitHub deployments. Claude then sets `STORY_API_FOR_PAGES`, checks a live story end to end and pushes.
+## 2. Turn on the Lantern (story mode): done
+- [x] Vercel project `shadowplay` imported with `ANTHROPIC_API_KEY`, live at **https://shadowplay-beta.vercel.app** (the game and `/api/story` on one origin). Every push to `main` redeploys it.
+- [x] The GitHub Pages build calls `https://shadowplay-beta.vercel.app/api/story` (`STORY_API_FOR_PAGES`), checked end to end. Model: Claude Haiku 5.5 (well under a cent per story).
+- [ ] In the Anthropic Console, set a **monthly spend limit** on the key (about $20 is plenty), and replace the key after winners are announced.
 
 ## 3. Video (to re-record with story mode)
 The current `~/Desktop/shadowplay-demo.mp4` (1:54) predates story mode. Once the Lantern is live, Claude records a new cut in the IWER emulator with `?director&story`: the tutorial, then a real, unscripted Claude story answered by scripted hands, kept under 3 minutes. The rules say to *lead with the story and what makes the project distinct*, and to show real gameplay honestly.

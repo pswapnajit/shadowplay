@@ -35,7 +35,7 @@ export interface StoryHost {
 }
 
 /** Where the story server lives. Same origin in development and on Vercel; configured for GitHub Pages. */
-export const STORY_API_FOR_PAGES = '';
+export const STORY_API_FOR_PAGES = 'https://shadowplay-beta.vercel.app/api/story';
 
 export function storyEndpoint(): string | null {
   const p = new URLSearchParams(location.search);
