@@ -22,6 +22,7 @@ import {
   type ServerEvent,
   type SignedTale,
   type SignedTurn,
+  type Step,
   type StoryEvent,
 } from '../src/story/protocol.js';
 import { SYSTEM_PROMPT } from './prompt.js';
@@ -31,7 +32,7 @@ type Msg = Anthropic.Beta.BetaMessageParam;
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
 const DEFAULT_ORIGINS = ['https://pswapnajit.github.io'];
-function originAllowed(origin: string | null, host: string | null = null): boolean {
+export function originAllowed(origin: string | null, host: string | null = null): boolean {
   if (!origin) return false;
   // The game served from this same deployment, whatever its domain.
   if (host && /^https:\/\//.test(origin) && new URL(origin).host === host) return true;
@@ -42,7 +43,7 @@ function originAllowed(origin: string | null, host: string | null = null): boole
   return /^https:\/\/shadowplay[a-z0-9-]*\.vercel\.app$/.test(origin);
 }
 
-function hostOf(url: string): string | null {
+export function hostOf(url: string): string | null {
   try {
     return new URL(url).host;
   } catch {
@@ -50,7 +51,7 @@ function hostOf(url: string): string | null {
   }
 }
 
-function cors(origin: string | null, host: string | null = null): Record<string, string> {
+export function cors(origin: string | null, host: string | null = null): Record<string, string> {
   return originAllowed(origin, host)
     ? {
         'Access-Control-Allow-Origin': origin!,
@@ -87,15 +88,23 @@ export const signTale = (title: string, summary: string, promise = ''): SignedTa
   ...(promise ? { promise } : {}),
   sig: mac(`tale:${title}\n${summary}\n${promise}`),
 });
+/** A line the Lantern spoke, signed as it was told: only signed lines (and the theatre's own phrases) get a voice. */
+export const signLine = (text: string): string => mac(`say:${text}`);
+export const lineValid = (text: string, sig: unknown): boolean => sameMac(`say:${text}`, sig);
 const taleValid = (t: SignedTale) =>
   typeof t.title === 'string' &&
   typeof t.summary === 'string' &&
   (t.promise === undefined || typeof t.promise === 'string') &&
   sameMac(`tale:${t.title}\n${t.summary}\n${t.promise ?? ''}`, t.sig);
 
+/** A step for the client; narration lines carry their signature (for the voice). */
+function stepEvent(step: Step): ServerEvent {
+  return { type: 'step', step, ...('say' in step ? { sig: signLine(step.say) } : {}) };
+}
+
 // --- rate limiting (best effort: per warm instance) -------------------------------
 const windows = new Map<string, number[]>();
-function allow(key: string, max: number, windowMs: number): boolean {
+export function allow(key: string, max: number, windowMs: number): boolean {
   const now = Date.now();
   const hits = (windows.get(key) ?? []).filter((t) => now - t < windowMs);
   if (hits.length >= max) {
@@ -107,7 +116,7 @@ function allow(key: string, max: number, windowMs: number): boolean {
   if (windows.size > 5000) windows.clear();
   return true;
 }
-function clientKey(request: Request): string {
+export function clientKey(request: Request): string {
   const fwd = request.headers.get('x-forwarded-for') ?? '';
   return fwd.split(',')[0].trim() || request.headers.get('x-real-ip') || 'anon';
 }
@@ -242,7 +251,7 @@ export async function handleStory(request: Request, deps: StoryDeps = {}): Promi
         for (const raw of steps.push(delta)) {
           const step = parseStep(raw);
           if (step) {
-            emit({ type: 'step', step });
+            emit(stepEvent(step));
             sent++;
           }
         }
@@ -276,8 +285,9 @@ export async function handleStory(request: Request, deps: StoryDeps = {}): Promi
         return;
       }
       // Anything the incremental scan missed (it shouldn't) goes out now, in order.
-      for (const step of beat.script.slice(sent)) emit({ type: 'step', step });
-      emit({ type: 'next', next: beat.next });
+      for (const step of beat.script.slice(sent)) emit(stepEvent(step));
+      // The ending's promise is spoken too, so it is signed like a line.
+      emit({ type: 'next', next: beat.next, ...('end' in beat.next && beat.next.tomorrow ? { sig: signLine(beat.next.tomorrow) } : {}) });
       const turn = signTurn(msg.content as unknown[]);
       const tale = 'end' in beat.next ? signTale(beat.next.end, beat.next.summary, beat.next.tomorrow) : undefined;
       emit({ type: 'turn', turn, ...(tale ? { tale } : {}) });

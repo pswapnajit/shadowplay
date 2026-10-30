@@ -9,7 +9,8 @@ Deadline: **Nov 18, 2026, 12:00 PT = Nov 19, 01:30 IST.** Aim to submit by Nov 1
 ## 2. Turn on the Lantern (story mode): done
 - [x] Vercel project `shadowplay` imported with `ANTHROPIC_API_KEY`, live at **https://shadowplay-beta.vercel.app** (the game and `/api/story` on one origin). Every push to `main` redeploys it.
 - [x] The GitHub Pages build calls `https://shadowplay-beta.vercel.app/api/story` (`STORY_API_FOR_PAGES`), checked end to end. Model: Claude Haiku 5.5 (well under a cent per story).
-- [ ] In the Anthropic Console, set a **monthly spend limit** on the key (about $20 is plenty), and replace the key after winners are announced.
+- [ ] Vercel → shadowplay → Settings → Environment Variables: add **`OPENAI_API_KEY`** (the Lantern's voice), then redeploy. Until then the site reads with the device's voice.
+- [ ] Set **monthly spend limits** on both keys (Anthropic about $20, OpenAI about $20; a story costs about 4 cents of voice), and replace both keys after winners are announced.
 
 ## 3. Video (to re-record with story mode)
 The current `~/Desktop/shadowplay-demo.mp4` (1:54) predates story mode. Once the Lantern is live, Claude records a new cut in the IWER emulator with `?director&story`: the tutorial, then a real, unscripted Claude story answered by scripted hands, kept under 3 minutes. The rules say to *lead with the story and what makes the project distinct*, and to show real gameplay honestly.
@@ -35,7 +36,7 @@ One entry per person, one prize per entry, so the track is the biggest single ch
 | Division | New Experience |
 | Project link | https://pswapnajit.github.io/shadowplay/ |
 | Code | https://github.com/pswapnajit/shadowplay |
-| Built with | Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, Vercel, MediaPipe |
+| Built with | Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, OpenAI text-to-speech, Vercel, MediaPipe |
 | Description | the "Description" section of DEVPOST.md (497 words; the form suggests 500 or fewer) |
 | Hand interactions | the "How hand interactions are implemented" section of DEVPOST.md |
 | Target launch date | January 2027 |

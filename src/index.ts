@@ -144,9 +144,10 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
     void webcam.start();
   });
 
-  document.getElementById('teller')!.textContent = storyEndpoint()
-    ? 'Stories are improvised live by Claude.'
-    : 'Every night the Lantern tells a new story.';
+  const endpoint = storyEndpoint();
+  document.getElementById('teller')!.textContent = endpoint ? 'Stories are improvised live by Claude.' : 'Every night the Lantern tells a new story.';
+  // The Lantern's own voice lives beside the story server.
+  voice.useServer(endpoint ? endpoint.replace(/\/api\/story$/, '/api/voice') : null);
 
   // Read-aloud: shown once the device turns out to have a voice.
   const aloud = document.getElementById('aloud')!;

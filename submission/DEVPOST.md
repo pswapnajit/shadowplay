@@ -7,7 +7,7 @@
 
 **Track:** Entertainment (immersive storytelling). Gaming fits too; see `SUBMIT.md` for the choice.
 **Division:** New Experience
-**Built with:** Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, Vercel, MediaPipe
+**Built with:** Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, OpenAI text-to-speech, Vercel, MediaPipe
 **Project link:** https://pswapnajit.github.io/shadowplay/
 **Code:** https://github.com/pswapnajit/shadowplay
 **Target launch date:** January 2027 (web), then a Horizon Store listing as an installable web app.

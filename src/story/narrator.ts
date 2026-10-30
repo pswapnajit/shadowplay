@@ -36,6 +36,10 @@ export class Narrator {
   lastError = '';
   /** Milliseconds from each request to its first step (for the debug overlay and tuning). */
   readonly latency: number[] = [];
+  /** Each step as it arrives (the voice fetches lines ahead). */
+  onStep: ((step: Step) => void) | null = null;
+  /** The server's signature for the ending's promise, when the Lantern ended the story. */
+  nextSig: string | null = null;
 
   private readonly turns: SignedTurn[] = [];
   private understudy: OfflineTeller | null = null;
@@ -80,7 +84,7 @@ export class Narrator {
     }
     const beat = this.catchUp ? this.understudy!.takeOver(this.events) : this.understudy!.beat(this.events);
     this.catchUp = false;
-    this.queue.push(...beat.script);
+    this.push(beat.script);
     this.next = beat.next;
     this.busy = false;
   }
@@ -117,12 +121,16 @@ export class Narrator {
           if (ev.type === 'step') {
             const step = parseStep(ev.step);
             if (!step) continue;
+            if ('say' in step && typeof ev.sig === 'string') step.sig = ev.sig;
             if (steps++ === 0) {
               clearTimeout(firstStep);
               this.latency.push(Math.round(performance.now() - t0));
             }
-            this.queue.push(step);
-          } else if (ev.type === 'next') next = parseNext(ev.next);
+            this.push([step]);
+          } else if (ev.type === 'next') {
+            next = parseNext(ev.next);
+            this.nextSig = typeof ev.sig === 'string' ? ev.sig : null;
+          }
           else if (ev.type === 'turn') {
             this.turns.push(ev.turn);
             if (ev.tale) this.tale = ev.tale;
@@ -145,7 +153,7 @@ export class Narrator {
         this.handOver(false);
         const beat = this.understudy!.takeOver(this.events);
         this.catchUp = false;
-        this.queue.push(...beat.script);
+        this.push(beat.script);
         this.next = beat.next;
       }
     } finally {
@@ -153,6 +161,13 @@ export class Narrator {
       clearTimeout(whole);
       if (this.ctrl === ctrl) this.ctrl = null;
       this.busy = false;
+    }
+  }
+
+  private push(steps: Step[]): void {
+    for (const s of steps) {
+      this.queue.push(s);
+      this.onStep?.(s);
     }
   }
 

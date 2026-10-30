@@ -66,7 +66,8 @@ export function daypartOf(hour: number): Daypart {
   return hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 17 ? 'afternoon' : hour >= 17 && hour < 21 ? 'evening' : 'night';
 }
 
-export type Step = { say: string } | { cue: Cue } | { who: CreatureId; does: Action };
+/** A narration line (signed by the story server, for the voice), a stage cue, or a stage direction. */
+export type Step = { say: string; sig?: string } | { cue: Cue } | { who: CreatureId; does: Action };
 export interface Ending {
   end: string;
   summary: string;
@@ -131,8 +132,8 @@ export interface StoryRequest {
 
 /** Newline-delimited JSON events streamed back by the server. */
 export type ServerEvent =
-  | { type: 'step'; step: Step }
-  | { type: 'next'; next: Next }
+  | { type: 'step'; step: Step; sig?: string }
+  | { type: 'next'; next: Next; sig?: string }
   | { type: 'turn'; turn: SignedTurn; tale?: SignedTale }
   | { type: 'error'; code: 'rate' | 'invalid' | 'unavailable' | 'refusal' | 'cut' | 'off'; message: string }
   | { type: 'done'; ms: number; model?: string };

@@ -71,6 +71,10 @@ export class StoryMode {
   private ending: Ending | null = null;
 
   private intro: Step[] = [];
+  /** The theatre's own phrases tonight (the voice server speaks these without a signature). */
+  private theatreLines = new Set<string>();
+  /** The signature of the line on the wall now ('' for the theatre's own phrases). */
+  lineSig = '';
   private step: Step | null = null;
   private stepT = 0;
   private waitT = 0;
@@ -139,6 +143,13 @@ export class StoryMode {
     const together = duet.connected;
     if (together) lines.unshift('Two lanterns tonight.', 'One of you is far away, but your shadows share this wall.');
     this.intro = lines.slice(0, together ? 4 : 3).map((say) => ({ say }));
+    // The Lantern's own voice: tonight's opening words are fetched now, and each line as it arrives.
+    const live = this.narrator.source === 'lantern';
+    this.theatreLines = new Set(live ? this.intro.map((s) => ('say' in s ? s.say : '')) : []);
+    for (const s of this.theatreLines) voice.prepare(s, { theatre: true });
+    this.narrator.onStep = (s) => {
+      if ('say' in s && s.sig) voice.prepare(s.say, { sig: s.sig });
+    };
     this.narrator.begin({
       type: 'open',
       known: this.host.known(),
@@ -220,7 +231,7 @@ export class StoryMode {
         // Then the Lantern's promise for tomorrow night.
         if (e?.tomorrow && this.endT > 5.6 && this.endT - dt <= 5.6) {
           this.host.hideTitle();
-          this.sayLine(e.tomorrow);
+          this.sayLine(e.tomorrow, this.narrator?.source === 'lantern' ? this.narrator.nextSig ?? undefined : undefined);
         }
         this.followVoice(dt);
         const promised = !e?.tomorrow || (this.endT > 6 && this.panel.done && !voice.speaking);
@@ -268,14 +279,22 @@ export class StoryMode {
     }
   }
 
-  /** Puts a line on the wall, read aloud when the device has a voice. */
-  private sayLine(text: string): void {
+  /** Puts a line on the wall, read aloud (in the Lantern's own voice when it can be). */
+  private sayLine(text: string, sig?: string): void {
     const voiced = voice.on;
+    const theatre = this.theatreLines.has(text);
     this.voicedLine = voiced;
+    this.lineSig = sig ?? '';
     const dur = this.panel.speak(text, voiced);
     this.voiceT = 0;
     this.voiceCap = dur * 2 + 2;
-    if (voiced) voice.speak(text, (i) => this.panel.follow(i));
+    if (!voiced) return;
+    if (voice.neural && (sig || theatre)) {
+      // The words wait for the voice (its audio may still be arriving).
+      this.panel.wait();
+      this.voiceCap += 6;
+    }
+    voice.speak(text, { sig, theatre, onWord: (i) => this.panel.follow(i), onStart: () => this.panel.go() });
   }
 
   /** Keeps the words in step with the voice; true while it is still reading the line. */
@@ -296,7 +315,7 @@ export class StoryMode {
     if ('say' in step) {
       this.host.hideTitle();
       this.stepT = 0;
-      this.sayLine(step.say);
+      this.sayLine(step.say, step.sig);
     } else if ('cue' in step) {
       this.fx.cue(step.cue);
       this.stepT = step.cue === 'moon' || step.cue === 'dawn' ? 1.5 : step.cue === 'thunder' ? 1.3 : 0.7;

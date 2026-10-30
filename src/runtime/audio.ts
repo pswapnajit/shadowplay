@@ -19,6 +19,8 @@ export class AudioEngine {
   private stage: Stage | null = null;
   /** The Lantern's own voice comes from the lantern. */
   private lanternOut: PannerNode | null = null;
+  /** In the headset the Lantern speaks from over the shoulder; on a screen, straight out. */
+  private immersive = false;
 
   /** Must be called from a user gesture (Enter XR click, first pinch…). */
   start(): void {
@@ -101,10 +103,11 @@ export class AudioEngine {
    * Called every frame: the listener follows the player's head, and the
    * Lantern's voice follows the lantern.
    */
-  listen(head: HeadFrame, stage: Stage | null): void {
+  listen(head: HeadFrame, stage: Stage | null, immersive = false): void {
     const ctx = this.ctx;
     if (!ctx) return;
     this.stage = stage;
+    this.immersive = immersive;
     const L = ctx.listener;
     const [px, py, pz] = head.position;
     const f = head.forward;
@@ -151,8 +154,31 @@ export class AudioEngine {
     return p;
   }
 
+  /**
+   * A line in the Lantern's own voice, from the lantern itself. The room tone
+   * dips a little while it speaks. Returns the playing source (or null before
+   * the sound has started).
+   */
+  playVoice(buf: AudioBuffer, volume = 1): AudioBufferSourceNode | null {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return null;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = this.muted ? 0 : volume;
+    src.connect(g).connect(this.immersive && this.lanternOut ? this.lanternOut : this.master);
+    const amb = this.ambience?.gain;
+    amb?.setTargetAtTime(Math.min(amb.value, 0.6), ctx.currentTime, 0.2);
+    src.addEventListener('ended', () => amb?.setTargetAtTime(this.ambienceLevel, ctx.currentTime, 0.6));
+    src.start();
+    return src;
+  }
+
+  private ambienceLevel = 0;
+
   /** Fade the ambience in or out (0..1). */
   setAmbience(level: number): void {
+    this.ambienceLevel = level;
     if (this.ambience && this.ctx) this.ambience.gain.setTargetAtTime(level, this.ctx.currentTime, 1.2);
   }
 

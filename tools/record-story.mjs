@@ -42,7 +42,7 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
       window.__storyLog = [];
       const st = sp.story;
       const speak = st.panel.speak.bind(st.panel);
-      st.panel.speak = (text) => (window.__storyLog.push({ t: now(), say: text }), speak(text));
+      st.panel.speak = (text, voiced) => (window.__storyLog.push({ t: now(), say: text }), speak(text, voiced));
       const cue = st.fx.cue.bind(st.fx);
       st.fx.cue = (c) => (window.__storyLog.push({ t: now(), cue: c }), cue(c));
       let last = '';

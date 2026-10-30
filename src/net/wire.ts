@@ -131,8 +131,8 @@ export function decodeGuestFrame(buf: ArrayBuffer, out: GuestFrameOut): boolean 
 
 /** A line of wall text: [text, sub, shown]. */
 export type TextState = [string, string, boolean];
-/** The narration: [line, words shown, thinking, shown]. */
-export type LineState = [string, number, boolean, boolean];
+/** The narration: [line, words shown, thinking, shown, the line's signature (for the voice)]. */
+export type LineState = [string, number, boolean, boolean, string];
 
 /** The host's scene, sent whenever it changes: the words on the wall and the outline to make. */
 export interface Scene {

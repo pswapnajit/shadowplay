@@ -39,6 +39,8 @@ export class NarrationPanel {
   private target = 0;
   private thinking = false;
   private thinkT = 0;
+  /** A voice is on its way: the timed reveal holds until it starts. */
+  private waiting = false;
   /** Called as each word appears (for the Lantern's murmur). */
   onWord: ((word: string, index: number, count: number) => void) | null = null;
 
@@ -78,6 +80,7 @@ export class NarrationPanel {
    * (`follow`) and the timed reveal only trails behind as a fallback.
    */
   speak(text: string, voiced = false): number {
+    this.waiting = false;
     this.words = [];
     this.starts = [];
     for (const m of text.matchAll(/\S+/g)) {
@@ -101,6 +104,16 @@ export class NarrationPanel {
     this.target = 1;
     this.paint();
     return this.end;
+  }
+
+  /** Holds the timed reveal until the voice starts (its audio is still arriving). */
+  wait(): void {
+    this.waiting = true;
+  }
+
+  /** The voice has started: the words follow it (and the timed reveal resumes as a fallback). */
+  go(): void {
+    this.waiting = false;
   }
 
   /** The voice has reached character `charIndex`: show every word up to there. */
@@ -171,7 +184,7 @@ export class NarrationPanel {
   }
 
   update(dt: number): void {
-    this.t += dt;
+    if (!this.waiting) this.t += dt;
     let n = Math.max(this.shown, this.heard);
     while (n < this.words.length && this.at[n] <= this.t) n++;
     if (n !== this.shown) {

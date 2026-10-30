@@ -360,7 +360,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         break;
     }
 
-    audio.listen(state.head, stage);
+    audio.listen(state.head, stage, this.world.visibilityState.peek() !== VisibilityState.NonImmersive);
     this.updateMouth();
     this.updateLook(dt);
     this.animate(dt, time);
@@ -435,7 +435,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     title: this.title.snapshot(),
     caption: this.caption.snapshot(),
     captionY: this.phase === 'story' ? 0.64 : 0.47,
-    line: this.story.panel.snapshot(),
+    line: [...this.story.panel.snapshot(), this.story.lineSig],
     target: this.theatre!.shadows.targetId,
   });
 
@@ -456,7 +456,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     } else if (sc) {
       this.title.mirror(sc.title);
       this.caption.mirror(sc.caption);
-      if (this.story.panel.mirror(sc.line) && voice.on) voice.speak(sc.line[0], (i) => this.story.panel.follow(i));
+      if (this.story.panel.mirror([sc.line[0], sc.line[1], sc.line[2], sc.line[3]]) && voice.on) {
+        voice.speak(sc.line[0], { sig: sc.line[4] || undefined, theatre: true, onWord: (i) => this.story.panel.follow(i) });
+      }
       if (sc.target !== this.mirrorTarget) {
         this.mirrorTarget = sc.target;
         r.setTarget(sc.target ? this.targets.get(sc.target) ?? null : null);
@@ -488,7 +490,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.ghost.hide();
     this.ghost.update(dt);
     this.updatePlayerHands(dt);
-    audio.listen(state.head, stage);
+    audio.listen(state.head, stage, this.world.visibilityState.peek() !== VisibilityState.NonImmersive);
     duet.tick(dt, this.stageOf, this.sceneOf);
   }
 
