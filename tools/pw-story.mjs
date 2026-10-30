@@ -24,7 +24,7 @@ export default async function run({ page, frame, workspaceRoot }) {
   // "prep" only loads the page (then enter XR from the CLI); "run" plays a story on the loaded page.
   if (cfg.step !== 'run') {
     const url = new URL(app.url());
-    url.search = cfg.query ?? '?narrator=offline';
+    url.search = cfg.query ?? '?narrator=offline&voice=off';
     await app.evaluate((fresh) => {
       localStorage.removeItem('shadowplay.book.v1');
       localStorage.setItem('shadowplay.v1', JSON.stringify({ collected: fresh ? ['bird'] : ['bird', 'rabbit', 'dog', 'fox'] }));

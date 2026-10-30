@@ -122,6 +122,20 @@
         color: rgba(255, 241, 214, 0.5);
         font-size: 13px;
       }
+      .aloud {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        color: var(--dim);
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .aloud input {
+        accent-color: var(--gold);
+        width: 18px;
+        height: 18px;
+      }
       #book {
         margin: 18px auto 0;
         max-width: 520px;
@@ -173,6 +187,7 @@
           <button id="enter-xr" disabled>Checking for a headset…</button>
           <button id="webcam" class="ghost">Try with your webcam</button>
         </div>
+        <label class="aloud" id="aloud" hidden><input type="checkbox" id="read-aloud" /> The Lantern reads the story aloud</label>
         <small>Best on Meta Quest with hand tracking, seated, facing a wall. No controllers needed. <span id="teller"></span></small>
         <details id="book" hidden>
           <summary></summary>

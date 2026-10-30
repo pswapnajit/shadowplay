@@ -13,6 +13,7 @@ import { type Action, type Ask, CAST, type CreatureId, daypartOf, type Step } fr
 import { audio } from './audio.js';
 import { NarrationPanel } from './narration.js';
 import { StageFx } from './stage-fx.js';
+import { voice } from './voice.js';
 
 export type StoryPhase = 'off' | 'telling' | 'asking' | 'ending';
 
@@ -67,10 +68,15 @@ export class StoryMode {
   private endT = 0;
   /** A breath before the first words, while the intro's titles fade. */
   private holdT = 0;
+  /** Seconds the current line has been spoken for (a voice that never ends is cut off). */
+  private voiceT = 0;
+  private voiceCap = 0;
+  private voicedLine = false;
 
   constructor(private readonly host: StoryHost) {
     // The Lantern murmurs each word: a wordless voice that rises and falls with the line.
     this.panel.onWord = (word, i, n) => {
+      if (voice.speaking) return; // the real voice is reading it
       const h = [...word].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
       const arc = Math.sin((i / Math.max(1, n - 1)) * Math.PI) * 4;
       const fall = i === n - 1 ? -3 : 0;
@@ -96,15 +102,18 @@ export class StoryMode {
     // The Lantern's own opening words, spoken while the first beat is on its way.
     const daypart = daypartOf(new Date().getHours());
     const now = daypart === 'evening' || daypart === 'night' ? 'Tonight' : 'Today';
+    // A returning player hears where they left off.
+    const last = book[book.length - 1];
     this.intro = (
-      book.length === 0
+      !last
         ? [`Every ${daypart}, I tell a story.`, `${now}, you cast it. Whoever you make on the wall will be in it.`]
-        : ['Another story? Of course.', "Let's see who comes out of the dark."]
+        : [`Last time, I told "${last.title}".`, `${now}, something new. Let's see who comes out of the dark.`]
     ).map((say) => ({ say }));
     this.narrator.begin({ type: 'open', known: this.host.known(), tales: book.length, daypart });
   }
 
   stop(): void {
+    voice.cancel();
     this.narrator?.cancel();
     this.narrator = null;
     this.phase = 'off';
@@ -174,7 +183,14 @@ export class StoryMode {
     }
     if (this.step) {
       this.stepT -= dt;
-      if (this.stepT > 0 || ('say' in this.step && !this.panel.done)) return;
+      this.voiceT += dt;
+      const speaking = voice.speaking && this.voiceT < this.voiceCap;
+      // the voice finished the line: all of it shows, and the story moves on
+      if (this.voicedLine && !speaking && this.voiceT > 0.5) {
+        this.voicedLine = false;
+        this.panel.voiceDone();
+      }
+      if (this.stepT > 0 || ('say' in this.step && (!this.panel.done || speaking))) return;
       this.step = null;
     }
     const n = this.narrator!;
@@ -204,7 +220,12 @@ export class StoryMode {
     if ('say' in step) {
       this.host.hideTitle();
       this.stepT = 0;
-      this.panel.speak(step.say);
+      const voiced = voice.on;
+      this.voicedLine = voiced;
+      const dur = this.panel.speak(step.say, voiced);
+      this.voiceT = 0;
+      this.voiceCap = dur * 2 + 2;
+      if (voiced) voice.speak(step.say, (i) => this.panel.follow(i));
     } else if ('cue' in step) {
       this.fx.cue(step.cue);
       this.stepT = step.cue === 'moon' || step.cue === 'dawn' ? 1.5 : step.cue === 'thunder' ? 1.3 : 0.7;

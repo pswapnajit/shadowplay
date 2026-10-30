@@ -14,6 +14,7 @@ import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
 import { setOnLanternLit, ShadowDrawSystem, TheatreSystem } from './runtime/theatre.js';
 import { storyEndpoint } from './runtime/story-mode.js';
+import { voice } from './runtime/voice.js';
 import { webcam } from './runtime/webcam.js';
 
 World.create(document.getElementById('scene-container') as HTMLDivElement, projectOptions).then((world) => {
@@ -139,6 +140,17 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   document.getElementById('teller')!.textContent = storyEndpoint()
     ? 'Stories are improvised live by Claude.'
     : 'Every night the Lantern tells a new story.';
+
+  // Read-aloud: shown once the device turns out to have a voice.
+  const aloud = document.getElementById('aloud')!;
+  const aloudBox = document.getElementById('read-aloud') as HTMLInputElement;
+  aloudBox.addEventListener('change', () => voice.set(aloudBox.checked));
+  const showAloud = () => {
+    aloud.hidden = !voice.available;
+    aloudBox.checked = voice.wanted;
+  };
+  showAloud();
+  if (typeof speechSynthesis !== 'undefined') speechSynthesis.addEventListener?.('voiceschanged', showAloud);
 
   // The Book of Shadows: every tale told on this device, newest first.
   const showBook = () => {

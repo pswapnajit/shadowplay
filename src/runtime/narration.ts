@@ -24,7 +24,11 @@ export class NarrationPanel {
   private readonly tex: CanvasTexture;
   private readonly mat: MeshBasicMaterial;
   private words: string[] = [];
+  /** Character offset of each word in the line (to follow a speaking voice). */
+  private starts: number[] = [];
   private at: number[] = [];
+  /** Words a speaking voice has already reached. */
+  private heard = 0;
   private pos: { x: number; y: number }[] = [];
   private fontPx = 54;
   private shown = 0;
@@ -66,24 +70,48 @@ export class NarrationPanel {
     );
   }
 
-  /** Starts a new line. Returns how long it will take to read, in seconds. */
-  speak(text: string): number {
-    this.words = text.split(/\s+/).filter(Boolean);
+  /**
+   * Starts a new line. Returns how long it will take to read, in seconds.
+   * `voiced`: a voice is reading it aloud, so the words follow the voice
+   * (`follow`) and the timed reveal only trails behind as a fallback.
+   */
+  speak(text: string, voiced = false): number {
+    this.words = [];
+    this.starts = [];
+    for (const m of text.matchAll(/\S+/g)) {
+      this.words.push(m[0]);
+      this.starts.push(m.index ?? 0);
+    }
     this.thinking = false;
+    this.heard = 0;
     this.layout();
     this.at = [];
+    const pace = voiced ? 1.3 : 1;
     let t = 0.15;
     for (const w of this.words) {
       this.at.push(t);
-      t += wordPause(w);
+      t += wordPause(w) * pace;
     }
     // time to take the line in once it's all there
-    this.end = t + 1.1 + Math.min(1.6, this.words.length * 0.05);
+    this.end = t + (voiced ? 0.4 : 1.1 + Math.min(1.6, this.words.length * 0.05));
     this.t = 0;
     this.shown = 0;
     this.target = 1;
     this.paint();
     return this.end;
+  }
+
+  /** The voice has reached character `charIndex`: show every word up to there. */
+  follow(charIndex: number): void {
+    let n = 0;
+    while (n < this.starts.length && this.starts[n] <= charIndex) n++;
+    this.heard = Math.max(this.heard, n);
+  }
+
+  /** The voice has finished the line: show all of it, and move on after a short pause. */
+  voiceDone(pause = 0.6): void {
+    this.heard = this.words.length;
+    this.end = Math.min(this.end, this.t + pause);
   }
 
   /** True once the current line has been revealed and held. */
@@ -115,7 +143,7 @@ export class NarrationPanel {
 
   update(dt: number): void {
     this.t += dt;
-    let n = this.shown;
+    let n = Math.max(this.shown, this.heard);
     while (n < this.words.length && this.at[n] <= this.t) n++;
     if (n !== this.shown) {
       for (let i = this.shown; i < n; i++) this.onWord?.(this.words[i], i, this.words.length);

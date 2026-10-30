@@ -51,7 +51,7 @@ The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behi
 - **Hands only, no text required:** a ghost hand demonstrates every pose. Hints appear only if you seem stuck.
 - **Adaptive assist:** if you're close but stuck, matching gently becomes more forgiving.
 - **Thumbs-up to skip:** hold a thumbs-up to move past any creature (or let a story's ask go); it waits for you in free play.
-- **Stories you can read at your own pace:** narration appears word by word in a band about 45° wide, inside a comfortable field of view on every Quest, and the game pauses while the system menu is open.
+- **Stories you can hear as well as read:** the Lantern reads each line aloud with the device's own speech synthesis while the words appear on the wall, following the voice word by word (there's a toggle on the start page; without a voice it murmurs instead). The narration band is about 45° wide, inside a comfortable field of view on every Quest, and the game pauses while the system menu is open.
 - **One-handed by default:** six of the nine creatures need just one hand, and either hand works (shapes are matched mirror-invariant).
 - **Short sessions:** each creature takes under a minute, and progress saves automatically.
 - **Laptop mode:** the full game also runs with a webcam, for anyone without a headset.

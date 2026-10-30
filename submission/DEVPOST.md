@@ -43,6 +43,7 @@ Every creature you make joins the cast and acts out the Lantern's stage directio
 - **Fair matching.** Shapes are compared by intersection-over-union after normalising position and scale, across a small range of rotations, and mirror-invariant so either hand works. Targets come from a kinematic hand built on a real captured Quest skeleton, so every shape is physically makeable. Thresholds were calibrated by simulating natural hand wobble. An adaptive assist eases off for players who are close but stuck, and in a story an off-script creature must be unmistakable before it can answer.
 - **The Lantern is Claude.** Claude Opus 5.5 runs behind a small serverless function. Each beat is a schema-constrained JSON script (narration lines, stage cues and creature actions in performance order, then the next ask or the end). The beat streams token by token, and the server forwards each step the moment it is complete, so the first line is on the wall before the beat has finished generating. Low effort keeps it quick, and prompt caching shares the static prompt across every player.
 - **Stateless and tamper-proof.** The game holds the conversation, and every earlier beat comes back HMAC-signed, so a client can replay the Lantern's own words but never put words in its mouth. The player's side is structured events only (which creature, how long it took, whether the ghost hand helped), never free text, so the endpoint can't be used as a chatbot. Per-IP limits, an origin allowlist and a server-side refusal fallback cover the rest.
+- **The Lantern reads aloud.** Each line is spoken with the device's own speech synthesis, and the words appear on the wall as they are spoken. Where there is no voice, the Lantern murmurs wordlessly.
 - **The stage is a shader.** The moon, stars, fireflies, lightning and dawn are drawn into the wall plane over passthrough. Rain and snow fall *between* the lantern and the wall, so they are drawn as shadows. Wind physically swings the lantern.
 - **Everything is procedural.** The creatures are capsule rigs drawn by the same shadow pass. All sound is synthesised in Web Audio, with no audio files: a plucked-string melody per creature, chirps, barks and howls, rain, wind, crickets, thunder, a dawn chorus, and the Lantern's own wordless murmur as each word appears.
 - **Laptop mode** runs the same game with webcam hand tracking (MediaPipe in the browser), so people without a headset can play.
@@ -75,7 +76,7 @@ The most magical interactions are the oldest ones. Hand tracking plus passthroug
 ## What's next
 
 - Two-player shadow plays in shared space: one person narrates, one person casts.
-- Voice: tell the Lantern what tonight's story should be about.
+- Voice input: tell the Lantern what tonight's story should be about.
 - Shadow capture: save a scene from your story as a picture.
 - Depth-aware occlusion, so real objects in the room also cast shadows.
 - A Horizon Store release as an installable web app.
