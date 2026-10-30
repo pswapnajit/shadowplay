@@ -183,7 +183,9 @@ describe('story server', () => {
     expect(evs.find((e) => e.type === 'next')).toEqual({ type: 'next', next: BEAT.next });
     const turn = evs.find((e) => e.type === 'turn') as Extract<ServerEvent, { type: 'turn' }>;
     expect(turn.turn.sig).toBeTruthy();
-    expect(params.model).toBe('claude-opus-5-5');
+    expect(params.model).toBe('claude-haiku-5-5');
+    // Haiku has no server-side fallback, and a request that asks for one is refused.
+    expect(params).not.toHaveProperty('fallbacks');
     expect(params.output_config?.effort).toBe('low');
     expect(params.output_config?.format).toBeTruthy();
     expect(params.messages).toHaveLength(1);

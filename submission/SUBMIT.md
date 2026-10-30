@@ -37,8 +37,8 @@ One entry per person, one prize per entry, so the track is the biggest single ch
 | Division | New Experience |
 | Project link | https://pswapnajit.github.io/shadowplay/ |
 | Code | https://github.com/pswapnajit/shadowplay |
-| Built with | Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, Claude, Vercel, MediaPipe |
-| Description | the "Description" section of DEVPOST.md (490 words; the form suggests 500 or fewer) |
+| Built with | Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, Vercel, MediaPipe |
+| Description | the "Description" section of DEVPOST.md (497 words; the form suggests 500 or fewer) |
 | Hand interactions | the "How hand interactions are implemented" section of DEVPOST.md |
 | Target launch date | January 2027 |
 | Images | upload `submission/gallery/*.jpg` (add story-mode stills after the new recording) |
@@ -57,7 +57,7 @@ One entry can win only one prize, so the aim is to be a strong candidate for as 
 | Best Accessibility Forward Experience ($25k) | Good | Captions and read-aloud, either hand, seated; options for hands-free look to choose (every hand action has a gaze twin), one hand, gentle shapes, calm stage, bigger words, high contrast. |
 | Boldest Original Concept ($25k) | Strong | It only works with real hands in front of a real wall: on any other platform it falls apart. |
 | Judge's Choice ($20k, 2 winners) | Possible | It straddles a game and a storytelling experience. |
-| Best Social & Multiplayer Experience ($25k) | Not yet | Single player today. A two-player mode (a friend casts on your wall from a laptop webcam) is a possible addition. |
+| Best Social & Multiplayer Experience ($25k) | Good | Play with a friend: a four-letter code links two walls anywhere (Quest or laptop webcam), peer to peer. Shared stage, two lanterns, the friend's shadows in blue, one story told to both, and only shadow shapes travel. |
 | Productivity, and all Adapted / Significantly Updated prizes | No | Not a productivity app, and the Adapted division is for projects that existed before Sept 24. |
 
 **The "take it away" test** (from the rules): without Claude, Shadowplay still works fully. The theatre, matching, creatures and lessons are built on-device, and the offline understudy tells the stories. DEVPOST.md says so explicitly.
@@ -65,4 +65,5 @@ One entry can win only one prize, so the aim is to be a strong candidate for as 
 ## 7. Before you press Submit
 - [ ] Open the project link once in a desktop browser to confirm it loads, then press *Try with your webcam* and check that a story starts after the first creature.
 - [ ] Open *Comfort & access*, turn on *Look to choose*, and check that hovering the pointer over an outline fills the gold ring and wakes the creature.
+- [ ] Two players: press *Play with a friend* on one device, open the invite link on another (a phone hotspot works), start the webcam on both, and check that each wall shows the other's shadow.
 - [ ] Keep the GitHub Pages site and the Vercel project (and the API key) up until winners are announced (~Dec 11). Pages deploys on every push to `main`.

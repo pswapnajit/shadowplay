@@ -73,6 +73,17 @@ export class WallText {
     this.target = 0;
   }
 
+  /** What it says and whether it's showing, for a friend's wall: [text, sub, shown]. */
+  snapshot(): [string, string, boolean] {
+    return [this.current, this.sub, this.target > 0.5];
+  }
+
+  /** Shows what the host's wall shows. */
+  mirror([text, sub, shown]: readonly [string, string, boolean]): void {
+    if (shown) this.show(text, sub);
+    else this.hide();
+  }
+
   update(delta: number): void {
     this.opacity += (this.target - this.opacity) * Math.min(1, delta * 3);
     this.mat.opacity = this.opacity;

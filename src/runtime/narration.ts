@@ -143,6 +143,33 @@ export class NarrationPanel {
     this.thinking = false;
   }
 
+  private mirrored = '';
+
+  /** The line, how many of its words are showing, and whether it's thinking or showing at all (for a friend's wall). */
+  snapshot(): [string, number, boolean, boolean] {
+    return [this.words.join(' '), this.shown, this.thinking, this.target > 0.5];
+  }
+
+  /**
+   * Shows what the host's panel shows, word for word: the host's reveal
+   * drives this one. Returns true when a new line arrives (to read it aloud).
+   */
+  mirror([line, shown, thinking, on]: readonly [string, number, boolean, boolean]): boolean {
+    let fresh = false;
+    if (thinking) this.setThinking(true);
+    else if (line && line !== this.mirrored) {
+      this.mirrored = line;
+      this.speak(line, false);
+      this.at.fill(Infinity);
+      this.end = Infinity;
+      fresh = true;
+    }
+    if (!thinking) this.heard = Math.max(this.heard, Math.min(shown, this.words.length));
+    this.target = on ? 1 : 0;
+    if (!on) this.thinking = false;
+    return fresh;
+  }
+
   update(dt: number): void {
     this.t += dt;
     let n = Math.max(this.shown, this.heard);

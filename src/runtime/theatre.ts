@@ -555,6 +555,8 @@ export class ShadowDrawSystem extends createSystem({}) {
       state.creatureSegCount,
       state.regionSize,
       blurPx,
+      state.remoteSegs,
+      state.remoteSegCount,
     );
   }
 }

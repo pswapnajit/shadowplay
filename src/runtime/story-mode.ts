@@ -7,10 +7,11 @@
  */
 
 import type { ShaderMaterial } from '@iwsdk/core';
-import { addTale, loadBook, nightKey, nightNumber, pendingPromise, recentSaga } from '../story/book.js';
+import { addTale, keepsakesOf, loadBook, nightKey, nightNumber, pendingPromise, recentSaga } from '../story/book.js';
 import { Narrator } from '../story/narrator.js';
 import { type Action, type Ask, CAST, type CreatureId, daypartOf, type Ending, type Keepsake, moonOf, type Step } from '../story/protocol.js';
 import { audio } from './audio.js';
+import { duet } from './duet.js';
 import { NarrationPanel } from './narration.js';
 import { StageFx } from './stage-fx.js';
 import { state } from './state.js';
@@ -134,7 +135,10 @@ export class StoryMode {
       if (promise) lines.push('Last time, I made you a promise. Tonight, I keep it.');
       else if (moon.phase !== 'full') lines.push(`Last time, I told "${last.title}". ${now}, something new.`);
     }
-    this.intro = lines.map((say) => ({ say }));
+    // A friend casting from far away: the Lantern greets them first.
+    const together = duet.connected;
+    if (together) lines.unshift('Two lanterns tonight.', 'One of you is far away, but your shadows share this wall.');
+    this.intro = lines.slice(0, together ? 4 : 3).map((say) => ({ say }));
     this.narrator.begin({
       type: 'open',
       known: this.host.known(),
@@ -143,6 +147,8 @@ export class StoryMode {
       night: this.night,
       ...(state.settings.oneHand ? { hands: 1 as const } : {}),
       ...(promise ? { keep: promise.keep } : {}),
+      hung: [...new Set(keepsakesOf(book))],
+      ...(together ? { players: 2 as const } : {}),
     });
   }
 
@@ -157,11 +163,20 @@ export class StoryMode {
     this.fx.reset();
   }
 
-  /** The player's shadow woke `id` during an ask. */
-  made(id: CreatureId, first: boolean): void {
+  /** The player's shadow (or the friend's) woke `id` during an ask. */
+  made(id: CreatureId, first: boolean, friend = false): void {
     if (this.phase !== 'asking' || !this.ask || !this.narrator) return;
     if (!this.cast.includes(id)) this.cast.push(id);
-    this.narrator.answer({ type: 'made', asked: this.ask, made: id, seconds: Math.round(this.askT), helped: this.helped, calls: this.calls, first });
+    this.narrator.answer({
+      type: 'made',
+      asked: this.ask,
+      made: id,
+      seconds: Math.round(this.askT),
+      helped: this.helped,
+      calls: this.calls,
+      first,
+      ...(friend ? { friend: true as const } : {}),
+    });
     this.toTelling();
     // Let the creature's wake and its name have the stage before the story goes on.
     this.holdT = 2.4;

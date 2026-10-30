@@ -19,7 +19,7 @@ Shadowplay is a hands-first, seated mixed-reality game for Meta Quest, built on 
 
 ## Story mode
 
-The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behind a small serverless function (`api/story.ts`, with the logic in `server/story.ts`).
+The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Haiku 5.5, chosen for speed: later beats reach the wall in about two seconds) behind a small serverless function (`api/story.ts`, with the logic in `server/story.ts`).
 
 - **One beat at a time.** Each beat is a JSON script, constrained by a schema (`src/story/protocol.ts`): narration lines, stage cues (night, moon, stars, wind, rain, snow, thunder, fireflies, dawn, calm) and creature actions (walk, run, hop, fly, sleep, hide, dance, call, look, bow, leave), in performance order. It ends with the next ask (a creature, or "any") or with the end: a title, a one-line summary, the keepsake the tale leaves behind and a promise for tomorrow night.
 - **Streamed step by step.** The server scans the still-generating JSON and forwards each step as soon as it is complete (`src/story/json-stream.ts`), so the first line reaches the wall while the rest of the beat is being written.
@@ -31,6 +31,14 @@ The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behi
 `?narrator=offline` forces the understudy, and `?story=off` plays the classic creature-by-creature lessons instead of stories.
 
 ![Living shadows, drawn with the same capsule primitives as your hands](docs/living-shadows.png)
+
+## Play with a friend
+
+Press **Play with a friend** on the start page and send the four-letter code (or the invite link). Your friend opens it on their own device, anywhere: another Quest, or a laptop with a webcam. Both walls then show the same stage, lit by two lanterns. Your shadows and theirs fall side by side (theirs in a cooler, bluer light), the creatures and the weather are shared, and the Lantern tells one story to both of you: either player's shadow can answer an ask, and the tale knows who made what ("From the far side of the wall, where the other lantern burns, came the fox").
+
+- **Peer to peer.** The two browsers talk directly over WebRTC (`src/net/link.ts`); PeerJS's free public broker only introduces them. The host's game runs the show and the Lantern; the friend's device sends its shadows and receives the stage.
+- **Nothing private travels.** Only shadow shapes go over the link: 2D capsules on the wall, quantised to 16 bits (about a kilobyte per frame for a pair of hands), plus how straight each finger is so the host can tell an open hand from a rabbit (`src/net/wire.ts`). No camera image, room video or joint data ever leaves either device.
+- **Without the network** the game is unchanged; `?net=local` links two tabs of one browser instead (for testing).
 
 ## Creatures
 
@@ -100,7 +108,7 @@ Useful URL flags: `?demo=bird` (or `rabbit`, `dog`, `swan`, `crocodile`, `butter
 
 **The storyteller locally.** Put `ANTHROPIC_API_KEY=...` in `.env` (git-ignored), and the dev server serves `/api/story` from the same code that runs on Vercel. Without a key, the understudy tells the stories.
 
-**Deploying the storyteller.** Import the repository into Vercel (the Vite preset is detected; `vercel.json` sets the function timeout) and add `ANTHROPIC_API_KEY` as an environment variable. The Vercel deployment serves the game and `/api/story` from one origin. For the GitHub Pages build, set `STORY_API_FOR_PAGES` in `src/runtime/story-mode.ts` to the deployment's `/api/story` URL. Optional settings: `STORY_MODEL` (default `claude-opus-5-5`), `STORY_EFFORT` (default `low`), `STORY_RATE_PER_HOUR` per IP (default 90), `STORY_GLOBAL_PER_HOUR` (default 1500), and `STORY_DISABLED=1` as a kill switch. Set a monthly spend limit on the API key, since the endpoint is public.
+**Deploying the storyteller.** Import the repository into Vercel (the Vite preset is detected; `vercel.json` sets the function timeout) and add `ANTHROPIC_API_KEY` as an environment variable. The Vercel deployment serves the game and `/api/story` from one origin. For the GitHub Pages build, set `STORY_API_FOR_PAGES` in `src/runtime/story-mode.ts` to the deployment's `/api/story` URL. Optional settings: `STORY_MODEL` (default `claude-haiku-5-5`), `STORY_EFFORT` (default `low`), `STORY_RATE_PER_HOUR` per IP (default 90), `STORY_GLOBAL_PER_HOUR` (default 1500), and `STORY_DISABLED=1` as a kill switch. Set a monthly spend limit on the API key, since the endpoint is public.
 
 Code map: `src/core/` holds pure TypeScript (hand model, shadow geometry, rasteriser, matcher, creatures, rigs) that is unit-testable in Node. `src/story/` holds the story protocol, the streaming step extractor, the narrator client, the offline understudy and the Book of Shadows. `src/runtime/` holds the IWSDK systems (theatre, game, story mode, narration panel, stage effects, renderer, audio, webcam, ghost hand). `server/` and `api/` hold the story endpoint.
 

@@ -152,7 +152,8 @@ export class ShadowRenderer {
           float t = clamp(dot(vP - vA.xy, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
           cov *= mix(1.0, vC.z, smoothstep(0.2, 1.0, t)) * vC.y;
           if (cov <= 0.002) discard;
-          gl_FragColor = vC.x < 0.5 ? vec4(cov, 0.0, 0.0, 1.0) : vec4(0.0, cov, 0.0, 1.0);
+          // R: the player's hands, G: the creatures, B: a friend's hands (two-player mode).
+          gl_FragColor = vC.x < 0.5 ? vec4(cov, 0.0, 0.0, 1.0) : vC.x < 1.5 ? vec4(0.0, cov, 0.0, 1.0) : vec4(0.0, 0.0, cov, 1.0);
         }`,
       blending: CustomBlending,
       blendEquation: MaxEquation,
@@ -364,7 +365,11 @@ export class ShadowRenderer {
           vec3 warm = mix(vec3(1.0, 0.80, 0.52), vec3(0.62, 0.72, 1.0), uSky.x * 0.6 * smoothstep(0.15, 0.95, r));
           warm = mix(warm, vec3(1.0, 0.74, 0.62), uSky.y * 0.5);
           float lit = pool * mix(0.34, 0.46, hc) * mix(flick, 1.0, hc) * grain * (1.0 - 0.2 * uSky.x + 0.25 * uSky.y);
-          float dark = shadow * pool;
+          // A friend's shadow (two-player mode) falls from their own lantern, in a cooler light.
+          float friend = clamp(sh.b, 0.0, 1.0) * pool * 0.92;
+          float dark = max(shadow * pool, friend);
+          float friendShare = clamp((friend - shadow * pool) * 3.0, 0.0, 1.0);
+          vec3 shadeCol = mix(vec3(0.03, 0.015, 0.0), vec3(0.03, 0.06, 0.16), friendShare);
           float shadowAlpha = mix(0.72, 0.97, hc);
 
           // Lights in the sky above the stage: the moon, stars, fireflies, dawn.
@@ -403,7 +408,7 @@ export class ShadowRenderer {
 
           vec3 col = warm;
           float a = lit * (1.0 - dark) + dark * shadowAlpha;
-          col = mix(col, vec3(0.03, 0.015, 0.0), clamp(dark * 1.4, 0.0, 1.0));
+          col = mix(col, shadeCol, clamp(dark * 1.4, 0.0, 1.0));
 
           // faint warm fill inside the target where the player's shadow isn't yet
           a += fillHint * pool * (1.0 - shadow);
@@ -419,7 +424,7 @@ export class ShadowRenderer {
             // desktop preview: opaque plaster wall, dimly lit outside the pool
             vec3 plaster = vec3(0.16, 0.14, 0.13) * (0.9 + 0.1 * noise(vP * 40.0)) * (1.0 - 0.35 * uSky.x);
             vec3 base = plaster + warm * lit * 1.6;
-            base = mix(base, base * 0.08, clamp(dark * 1.15, 0.0, 1.0));
+            base = mix(base, mix(base * 0.08, vec3(0.03, 0.06, 0.14), friendShare), clamp(dark * 1.15, 0.0, 1.0));
             base = mix(base, gold, clamp(outline, 0.0, 1.0) * (0.55 + 0.4 * uGlow));
             base += warm * fillHint * pool * (1.0 - shadow) * 0.6;
             base = mix(base, vec3(1.0, 0.93, 0.7), uFlash * pool * 0.5);
@@ -467,8 +472,12 @@ export class ShadowRenderer {
     this.segMat.uniforms.uS.value = size;
   }
 
+  /** The creature whose outline is showing (for a friend's wall). */
+  targetId: string | null = null;
+
   /** Uploads a target's outline (signed distance field) for the wall shader. */
   setTarget(target: Target | null): void {
+    this.targetId = target?.id ?? null;
     if (!target) {
       this.wallMat.uniforms.uTVis.value = 0;
       return;
@@ -495,6 +504,8 @@ export class ShadowRenderer {
     creatureCount: number,
     regionSize: number,
     blurPx: number,
+    remoteSegs?: Float32Array,
+    remoteCount = 0,
   ): void {
     const A = this.aA.array as Float32Array;
     const B = this.aB.array as Float32Array;
@@ -524,6 +535,7 @@ export class ShadowRenderer {
       put(handSegs, i, 0, 1, isForearm ? 0 : 1);
     }
     for (let i = 0; i < creatureCount; i++) put(creatureSegs, i, 1, creatureAlpha[i], 1);
+    for (let i = 0; i < remoteCount; i++) put(remoteSegs!, i, 2, 1, isForearmIndex(i) ? 0 : 1);
     this.segGeo.instanceCount = n;
     this.aA.needsUpdate = true;
     this.aB.needsUpdate = true;

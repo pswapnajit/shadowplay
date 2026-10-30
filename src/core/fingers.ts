@@ -33,10 +33,14 @@ export function fingerShape(joints: Float32Array): number[] {
 const tmp = new Float32Array(4);
 /** False when this hand plainly contradicts the shape: a finger it needs curled is straight, or one it needs straight is curled. */
 export function fingersFit(shape: readonly number[], joints: Float32Array): boolean {
-  straightness(joints, tmp);
+  return straightnessFits(shape, straightness(joints, tmp));
+}
+
+/** The same test on straightness already measured (a friend's hand, measured on their device): `s[at..at+3]`. */
+export function straightnessFits(shape: readonly number[], s: ArrayLike<number>, at = 0): boolean {
   for (let i = 0; i < 4; i++) {
-    if (shape[i] < 0 && tmp[i] > 0.9) return false;
-    if (shape[i] > 0 && tmp[i] < 0.6) return false;
+    if (shape[i] < 0 && s[at + i] > 0.9) return false;
+    if (shape[i] > 0 && s[at + i] < 0.6) return false;
   }
   return true;
 }

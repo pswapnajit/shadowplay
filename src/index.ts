@@ -8,6 +8,8 @@ import { CREATURE_BY_ID, CREATURES } from './core/creatures.js';
 import { ACCESS_OPTIONS, loadAccess, setAccess } from './runtime/access.js';
 import { audio } from './runtime/audio.js';
 import { DemoHandsSystem } from './runtime/demo-hands.js';
+import { duet, duetTransport, type DuetStatus } from './runtime/duet.js';
+import { newCode, normaliseCode } from './net/link.js';
 import { loadBook, nightKey, nightNumber, pendingPromise } from './story/book.js';
 import { CAST, moonOf } from './story/protocol.js';
 import { DirectorSystem } from './runtime/director.js';
@@ -156,6 +158,59 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   };
   showAloud();
   if (typeof speechSynthesis !== 'undefined') speechSynthesis.addEventListener?.('voiceschanged', showAloud);
+
+  // --- two players: a friend casts on your wall from theirs ------------------
+  const duetBox = document.getElementById('duet-box')!;
+  const duetCode = document.getElementById('duet-code')!;
+  const duetLabel = document.getElementById('duet-label')!;
+  const duetStatus = document.getElementById('duet-status')!;
+  const duetCopy = document.getElementById('duet-copy') as HTMLButtonElement;
+  const duetButton = document.getElementById('duet') as HTMLButtonElement;
+  const transport = duetTransport();
+  const invite = (code: string) => `${location.origin}${location.pathname}?join=${code}${transport === 'local' ? '&net=local' : ''}`;
+  const HOST_TEXT: Record<DuetStatus, string> = {
+    off: '',
+    opening: 'Opening your theatre…',
+    waiting: 'Send your friend the link (or the code). Go in whenever you like: they can join at any time, on a Quest or with a laptop webcam.',
+    joined: 'Your friend is here. Their shadows fall in blue, from their own lantern.',
+    lost: '',
+    error: '',
+  };
+  const GUEST_TEXT: Record<DuetStatus, string> = {
+    off: '',
+    opening: 'Joining your friend’s theatre…',
+    waiting: '',
+    joined: 'You’re in! Enter the theatre (or try with your webcam) and cast: your shadows appear on your friend’s wall, and theirs on yours.',
+    lost: 'The theatre has closed: its host has gone.',
+    error: '',
+  };
+  duet.onStatus = (st) => {
+    duetBox.hidden = st === 'off';
+    duetLabel.textContent = duet.guest ? 'Joining theatre' : 'Your theatre’s code';
+    duetCode.textContent = duet.code;
+    duetCopy.hidden = duet.guest || st === 'error';
+    duetStatus.textContent = st === 'error' ? duet.detail : (duet.guest ? GUEST_TEXT : HOST_TEXT)[st];
+    duetButton.hidden = st !== 'off' && st !== 'error';
+  };
+  const host = async (code = newCode(), tries = 3): Promise<void> => {
+    await duet.start('host', code, transport);
+    // That code is taken somewhere: pick another.
+    if (duet.status === 'error' && /in use/.test(duet.detail) && tries > 1) return host(newCode(), tries - 1);
+  };
+  duetButton.addEventListener('click', () => {
+    audio.start();
+    void host();
+  });
+  duetCopy.addEventListener('click', () => {
+    void navigator.clipboard?.writeText(invite(duet.code)).then(() => {
+      duetCopy.textContent = 'Link copied';
+      setTimeout(() => (duetCopy.textContent = 'Copy invite link'), 2000);
+    });
+  });
+  const joinCode = normaliseCode(params.get('join'));
+  const hostCode = normaliseCode(params.get('host'));
+  if (joinCode) void duet.start('guest', joinCode, transport);
+  else if (hostCode) void host(hostCode, 1);
 
   // Comfort and access: remembered on this device; none of it is needed to play.
   const access = document.getElementById('access') as HTMLDetailsElement;

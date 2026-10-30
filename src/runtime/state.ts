@@ -66,6 +66,10 @@ export const state = {
   /** Player's hand shadow segments (wall coordinates). */
   handSegs: new Float32Array(2 * BONES_PER_HAND * SEG_STRIDE),
   handSegCount: 0,
+  /** A friend's hand shadows (two-player mode), cast on their own wall and sent over: wall coordinates. */
+  remoteSegs: new Float32Array(2 * BONES_PER_HAND * SEG_STRIDE),
+  remoteSegCount: 0,
+
   /** Creature shadow segments (wall coordinates) and per-segment opacity. */
   creatureSegs: new Float32Array(MAX_SEGMENTS * SEG_STRIDE),
   creatureAlpha: new Float32Array(MAX_SEGMENTS),

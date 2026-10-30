@@ -11,16 +11,20 @@ import { CREATURE_BY_ID, CREATURES, type CreatureDef } from '../core/creatures.j
 import { J } from '../core/hand-data.js';
 import { type MatchResult, ShapeMatcher, type Target } from '../core/match.js';
 import { RIG_HEIGHT, RIGS, SegWriter } from '../core/rigs.js';
-import { fingerShape, fingersFit } from '../core/fingers.js';
+import { fingerShape, fingersFit, straightnessFits } from '../core/fingers.js';
+import type { Stage } from '../core/shadow-geom.js';
+import type { Scene } from '../net/wire.js';
 import { creatureTarget, decoyTargets, specJoints } from '../core/targets.js';
 import { keepsakesOf, loadBook } from '../story/book.js';
 import type { Action, Ask, CreatureId, Keepsake } from '../story/protocol.js';
 import { audio } from './audio.js';
+import { duet } from './duet.js';
 import { Garland } from './keepsakes.js';
 import { state, TOLERANCE_IOU } from './state.js';
 import { canFly, StoryMode, type StoryHost } from './story-mode.js';
 import type { TheatreSystem } from './theatre.js';
 import { GhostHand } from './ghost-hand.js';
+import { voice } from './voice.js';
 import { WallText } from './wall-text.js';
 
 export type Phase = 'idle' | 'intro' | 'seek' | 'awaken' | 'free' | 'story';
@@ -115,6 +119,13 @@ export class GameSystem extends createSystem({}) implements StoryHost {
 
   title!: WallText;
   caption!: WallText;
+  /** Brief notices under the shelf (a friend joined or left). */
+  toast!: WallText;
+  private toastT = 0;
+  /** Two-player mode: the best shadow this moment is the friend's. */
+  private bestFriend = false;
+  /** Guest: the outline the host's wall is showing. */
+  private mirrorTarget: string | null = null;
   ghost!: GhostHand;
   /** The player's own hands, drawn in the desktop/webcam view only. */
   playerHands!: GhostHand;
@@ -160,8 +171,15 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.load();
     this.title = new WallText(1.2);
     this.caption = new WallText(1.0);
+    this.toast = new WallText(1.0);
     this.world.createTransformEntity(this.title.mesh);
     this.world.createTransformEntity(this.caption.mesh);
+    this.world.createTransformEntity(this.toast.mesh);
+    duet.onPeer = (here) => {
+      this.toastT = 6;
+      if (duet.guest) this.toast.show(here ? `You're in theatre ${duet.code}` : 'The theatre has closed', here ? 'Your shadows fall in blue on your friend’s wall' : 'Its host has gone');
+      else this.toast.show(here ? 'A friend has joined' : 'Your friend has gone', here ? 'Their shadows fall in blue, from their own lantern' : 'The theatre stays open for them');
+    };
     this.ghost = new GhostHand();
     this.world.createTransformEntity(this.ghost.root);
     this.playerHands = new GhostHand(0xf4ead8);
@@ -258,6 +276,15 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     // The system menu is open over the session: hold the show (and the story) until it closes.
     if (this.world.visibilityState.peek() === VisibilityState.VisibleBlurred) return;
     const dt = Math.min(delta, 0.05);
+    this.toastT -= dt;
+    if (this.toastT <= 0) this.toast.hide();
+    this.toast.place(stage, 0, -0.9);
+    this.toast.update(dt);
+    // A friend's theatre shows the host's stage; this one only casts.
+    if (duet.guest) {
+      this.updateGuest(dt, stage);
+      return;
+    }
     this.phaseT += dt;
     if (this.phase === 'idle') this.begin();
 
@@ -367,6 +394,100 @@ export class GameSystem extends createSystem({}) implements StoryHost {
 
     this.title.update(dt);
     this.caption.update(dt);
+    duet.tick(dt, this.stageOf, this.sceneOf);
+  }
+
+  // --- two players ------------------------------------------------------------------
+
+  /** The host's wall lighting, for the friend's wall (the order wire.ts expects). */
+  private readonly stageOf = (o: Float32Array): void => {
+    const u = this.theatre!.shadows.wallMat.uniforms;
+    const v4 = (v: { x: number; y: number; z: number; w: number }, at: number) => {
+      o[at] = v.x;
+      o[at + 1] = v.y;
+      o[at + 2] = v.z;
+      o[at + 3] = v.w;
+    };
+    v4(u.uSky.value, 0);
+    v4(u.uWeather.value, 4);
+    o[8] = u.uMoon.value.x;
+    o[9] = u.uMoon.value.y;
+    o[10] = u.uMoonLit.value;
+    o[11] = u.uSway.value.x;
+    o[12] = u.uSway.value.y;
+    o[13] = u.uPool.value.w;
+    v4(u.uTX.value, 14);
+    o[18] = u.uTMirror.value;
+    o[19] = u.uTVis.value;
+    o[20] = u.uGlow.value;
+    o[21] = u.uFlash.value;
+    v4(u.uGaze.value, 22);
+    o[26] = u.uGazeDot.value.x;
+    o[27] = u.uGazeDot.value.y;
+    o[28] = u.uGazeDot.value.z;
+  };
+
+  /** The words on the host's wall and the outline showing, for the friend's wall. */
+  private readonly sceneOf = (): Scene => ({
+    t: 'scene',
+    title: this.title.snapshot(),
+    caption: this.caption.snapshot(),
+    captionY: this.phase === 'story' ? 0.64 : 0.47,
+    line: this.story.panel.snapshot(),
+    target: this.theatre!.shadows.targetId,
+  });
+
+  /**
+   * A friend's theatre: the stage, the creatures, the words and the sounds
+   * all come from the host; this wall adds the friend's own shadows (and
+   * sends them over, for the host's game to match).
+   */
+  private updateGuest(dt: number, stage: Stage): void {
+    const r = this.theatre!.shadows;
+    const sc = duet.scene;
+    this.title.place(stage, 0, 0.62);
+    this.caption.place(stage, 0, sc?.captionY ?? 0.47);
+    this.story.panel.place(stage, 0, 0.56);
+    if (duet.status === 'lost' || duet.status === 'error') {
+      this.title.hide();
+      this.caption.show(duet.status === 'lost' ? 'The theatre has closed' : "Couldn't join the theatre", duet.status === 'lost' ? 'Its host has gone. Reload to join again.' : duet.detail);
+    } else if (sc) {
+      this.title.mirror(sc.title);
+      this.caption.mirror(sc.caption);
+      if (this.story.panel.mirror(sc.line) && voice.on) voice.speak(sc.line[0], (i) => this.story.panel.follow(i));
+      if (sc.target !== this.mirrorTarget) {
+        this.mirrorTarget = sc.target;
+        r.setTarget(sc.target ? this.targets.get(sc.target) ?? null : null);
+      }
+    } else this.caption.show('Joining the theatre…', `Code ${duet.code}`);
+    if (duet.stageFresh) {
+      duet.stageFresh = false;
+      const s = duet.stage;
+      const u = r.wallMat.uniforms;
+      u.uSky.value.set(s[0], s[1], s[2], s[3]);
+      u.uWeather.value.set(s[4], s[5], s[6], s[7]);
+      u.uMoon.value.set(s[8], s[9]);
+      u.uMoonLit.value = s[10];
+      u.uSway.value.set(s[11], s[12]);
+      // s[13] is the host's lantern brightness: each wall keeps its own lantern's.
+      u.uTX.value.set(s[14], s[15], s[16], s[17]);
+      u.uTMirror.value = s[18];
+      u.uTVis.value = s[19];
+      u.uGlow.value = s[20];
+      u.uFlash.value = s[21];
+      u.uGaze.value.set(s[22], s[23], s[24], s[25]);
+      u.uGazeDot.value.set(s[26], s[27], s[28]);
+      this.theatre!.lanternSway[0] = s[11];
+      this.theatre!.lanternSway[1] = s[12];
+    }
+    this.title.update(dt);
+    this.caption.update(dt);
+    this.story.panel.update(dt);
+    this.ghost.hide();
+    this.ghost.update(dt);
+    this.updatePlayerHands(dt);
+    audio.listen(state.head, stage);
+    duet.tick(dt, this.stageOf, this.sceneOf);
   }
 
   /** Moves past the creature being taught; it waits in free play. */
@@ -427,7 +548,10 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       let secondIou = 0;
       let bestRes: MatchResult | null = null;
       let bestDef: CreatureDef | null = null;
-      if (state.handSegCount > 0) {
+      let bestSrc = 0;
+      // The player's shadow, and in two-player mode the friend's: each is scored on its own.
+      const sources = duet.connected && state.remoteSegCount > 0 ? 2 : 1;
+      if (state.handSegCount > 0 || sources === 2) {
         const pool =
           mode === 'seek'
             ? [this.order[this.idx]]
@@ -440,10 +564,15 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         targets.length = 0;
         for (const c of pool) targets.push(this.targets.get(c.id)!);
         targets.push(...this.decoys);
-        const results = this.matcher.matchAll(state.handSegs, state.handSegCount, targets);
-        if (results) {
+        for (let src = 0; src < sources; src++) {
+          const count = src === 0 ? state.handSegCount : state.remoteSegCount;
+          const results = count > 0 ? this.matcher.matchAll(src === 0 ? state.handSegs : state.remoteSegs, count, targets) : null;
+          if (!results) continue;
           let decoy = 0;
           for (let i = pool.length; i < targets.length; i++) decoy = Math.max(decoy, results[i].iou);
+          let first = 0;
+          let second = 0;
+          let firstAt = -1;
           for (let i = 0; i < pool.length; i++) {
             const c = pool[i];
             const res = results[i];
@@ -452,21 +581,28 @@ export class GameSystem extends createSystem({}) implements StoryHost {
             const taught = mode === 'seek' || c === want;
             let v = res.iou > decoy - (taught ? 0.05 : 0) ? res.iou : Math.min(res.iou, 0.45);
             // The joints must agree with the shape: an open hand isn't a rabbit, a fist isn't a bird.
+            // (A friend's joints stay on their device; how straight their fingers are comes with their shadow.)
             const shape = this.fingers.get(c.id);
-            if (shape && !state.hands.some((h) => h.tracked && fingersFit(shape, h.joints))) v = Math.min(v, 0.45);
-            if (v > bestIou) {
-              secondIou = bestIou;
-              bestIou = v;
-              bestDef = c;
-              bestRes = { ...res, frame: { ...res.frame } };
-            } else if (v > secondIou) {
-              secondIou = v;
-            }
+            const fits = !shape || (src === 0 ? state.hands.some((h) => h.tracked && fingersFit(shape, h.joints)) : this.friendFits(shape));
+            if (!fits) v = Math.min(v, 0.45);
+            if (v > first) {
+              second = first;
+              first = v;
+              firstAt = i;
+            } else if (v > second) second = v;
+          }
+          // With several candidates, an ambiguous shape (two creatures nearly tied) wakes nobody.
+          if (several && first - second < 0.04) first = Math.min(first, 0.45);
+          if (firstAt >= 0 && first > bestIou) {
+            secondIou = Math.max(secondIou, second);
+            bestIou = first;
+            bestDef = pool[firstAt];
+            bestRes = { ...results[firstAt], frame: { ...results[firstAt].frame } };
+            bestSrc = src;
           }
         }
       }
-      // With several candidates, an ambiguous shape (two creatures nearly tied) wakes nobody.
-      if (several && bestIou - secondIou < 0.04) bestIou = Math.min(bestIou, 0.45);
+      this.bestFriend = bestSrc === 1;
       if (several && bestDef !== this.best) this.iouSmooth *= 0.5;
       this.best = bestDef;
       this.iou = bestIou;
@@ -489,7 +625,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     else this.holdT = Math.max(0, this.holdT - dt * 2);
     if (this.holdT >= (strict ? 0.9 : 0.6) && this.last) {
       if (mode === 'story') {
-        this.wakeStory(def, this.last);
+        this.wakeStory(def, this.last, this.bestFriend);
         this.holdT = 0;
         return;
       }
@@ -510,6 +646,12 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         this.wake(def, this.last, false);
       }
     }
+  }
+
+  /** Whether the friend's tracked hand could be making this shape. */
+  private friendFits(shape: readonly number[]): boolean {
+    const t = duet.remoteTracked;
+    return ((t & 1) !== 0 && straightnessFits(shape, duet.remoteStraight, 0)) || ((t & 2) !== 0 && straightnessFits(shape, duet.remoteStraight, 4));
   }
 
   private wake(def: CreatureDef, m: MatchResult, visitor: boolean): void {
@@ -543,7 +685,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   // --- story mode -----------------------------------------------------------------
 
   /** The answer to an ask: the creature wakes, joins tonight's cast, and the story goes on. */
-  private wakeStory(def: CreatureDef, m: MatchResult): void {
+  private wakeStory(def: CreatureDef, m: MatchResult, friend = false): void {
     const first = !this.collected.has(def.id);
     // Already in the tale? The newcomer takes its place.
     const old = this.onStage(def.id as CreatureId);
@@ -556,7 +698,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.title.show(`${def.name}!`);
     this.caption.hide();
     this.theatre?.shadows.setTarget(null);
-    this.story.made(def.id as CreatureId, first);
+    this.story.made(def.id as CreatureId, first, friend);
   }
 
   private tickStoryAsk(dt: number): void {
@@ -1014,7 +1156,11 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       if (want) this.story.helped = true;
     } else this.ghost.hide();
     this.ghost.update(dt);
-    // In the headset the player sees their real hands; on a screen we draw them.
+    this.updatePlayerHands(dt);
+  }
+
+  /** In the headset the player sees their real hands; on a screen we draw them. */
+  private updatePlayerHands(dt: number): void {
     if ((state.virtualWall || this.showPlayerHands) && state.handSegCount > 0) this.playerHands.show(this.order[0]);
     else this.playerHands.hide();
     this.playerHands.update(dt);

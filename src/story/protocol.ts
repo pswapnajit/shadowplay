@@ -88,10 +88,22 @@ export type StoryEvent =
    * stories told before tonight. `daypart`: the player's local time of day.
    * `night`: which night this is in the theatre (it sets the moon). `hands`:
    * 1 for one-handed play. `keep`: a promise made last time, to keep tonight.
+   * `hung`: keepsakes already hanging in the theatre. `players`: 2 when a
+   * friend casts too, from their own wall far away.
    */
-  | { type: 'open'; known: CreatureId[]; tales: number; daypart?: Daypart; night?: number; hands?: 1 | 2; keep?: Keep }
-  /** The player made a creature in answer to an ask. */
-  | { type: 'made'; asked: Ask; made: CreatureId; seconds: number; helped: boolean; calls: number; first: boolean }
+  | {
+      type: 'open';
+      known: CreatureId[];
+      tales: number;
+      daypart?: Daypart;
+      night?: number;
+      hands?: 1 | 2;
+      keep?: Keep;
+      hung?: Keepsake[];
+      players?: 2;
+    }
+  /** The player (or, with `friend`, the friend far away) made a creature in answer to an ask. */
+  | { type: 'made'; asked: Ask; made: CreatureId; seconds: number; helped: boolean; calls: number; first: boolean; friend?: true }
   /** Nobody came: the player let the ask go (thumbs-up) or time ran out. */
   | { type: 'none'; asked: Ask; seconds: number };
 
@@ -270,6 +282,7 @@ export function parseEvent(x: unknown): StoryEvent | null {
           : k && typeof k === 'object' && isCreature(k.who) && Number.isInteger(k.quest) && (k.quest as number) >= 0 && (k.quest as number) < TEASERS.length
             ? { quest: k.quest as number, who: k.who }
             : undefined;
+      const hung = Array.isArray(o.hung) ? [...new Set(o.hung.filter(isKeepsake))].slice(-KEEPSAKES.length) : [];
       return {
         type: 'open',
         known: [...new Set(o.known)],
@@ -278,6 +291,8 @@ export function parseEvent(x: unknown): StoryEvent | null {
         ...(night ? { night } : {}),
         ...(o.hands === 1 ? { hands: 1 as const } : {}),
         ...(keep ? { keep } : {}),
+        ...(hung.length ? { hung } : {}),
+        ...(o.players === 2 ? { players: 2 as const } : {}),
       };
     }
     case 'made':
@@ -290,6 +305,7 @@ export function parseEvent(x: unknown): StoryEvent | null {
         helped: o.helped === true,
         calls: num(o.calls, 20),
         first: o.first === true,
+        ...(o.friend === true ? { friend: true as const } : {}),
       };
     case 'none':
       if (!isAsk(o.asked)) return null;
@@ -299,7 +315,7 @@ export function parseEvent(x: unknown): StoryEvent | null {
   }
 }
 
-const the = (id: CreatureId) => `the ${CAST[id].name} (${id})`;
+const the = (id: CreatureId) => `${called(id)} (${id})`;
 
 /**
  * The user message for an event. Deterministic: the same event at the same
@@ -320,6 +336,11 @@ export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: stri
       );
     }
     if (when) lines.push(when);
+    if (e.players === 2) {
+      lines.push(
+        'Two players are casting tonight, each in front of their own wall, far apart: the host, and a friend who joined from far away. Both walls show the same stage. The theatre has already greeted them both, so go straight into the tale; let your "any" asks go to either of them, and let the tale make room for a traveller from far away.',
+      );
+    }
     lines.push(`Creatures this player already knows how to make: ${known}.`);
     if (e.hands === 1) {
       const one = CREATURE_IDS.filter((id) => CAST[id].hands === 1).join(', ');
@@ -331,15 +352,16 @@ export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: stri
       for (const t of saga) lines.push(`- "${t.title}": ${t.summary}`);
     }
     const promised = e.keep === 'last' ? saga[saga.length - 1]?.promise : e.keep ? teaser(e.keep.quest, e.keep.who) : undefined;
-    if (promised) lines.push(`Last time, you promised: "${promised}" Tonight's story keeps that promise.`);
-    lines.push("Begin tonight's story: the opening beat, ending with your first ask.");
+    if (promised) lines.push(`Last time, you promised: "${promised}" Tonight's story keeps that promise, as a new adventure.`);
+    if (e.hung?.length) lines.push(`Keepsakes already hanging in this theatre: ${e.hung.join(', ')}. Choose a different one tonight if one fits.`);
+    lines.push("Begin tonight's story: the opening beat (two to four narration lines), ending with your first ask.");
     return lines.join('\n');
   }
   const lines: string[] = [];
   const asked = e.asked === 'any' ? 'any creature (the player chose)' : the(e.asked);
   if (e.type === 'made') {
     const differs = e.asked !== 'any' && e.asked !== e.made;
-    lines.push(`You asked for: ${asked}. The player made: ${the(e.made)}${differs ? ', not the one you asked for' : ''}.`);
+    lines.push(`You asked for: ${asked}. ${e.friend ? 'The friend far away' : 'The player'} made: ${the(e.made)}${differs ? ', not the one you asked for' : ''}.`);
     const help = e.helped ? ', with the ghost hand showing them how' : '';
     lines.push(`It took ${e.seconds} seconds${help}.${e.calls ? ` On stage it called out ${e.calls} time${e.calls === 1 ? '' : 's'}.` : ''}`);
     if (e.first) lines.push(`This is the first time this player has ever made the ${CAST[e.made].name}.`);
@@ -352,9 +374,9 @@ export function renderEvent(e: StoryEvent, asksDone: number, saga: { title: stri
 
 function pacing(asksDone: number): string {
   if (asksDone >= LIMITS.maxTurns - 2) return `[Ask ${asksDone} of the story is done. End the story in this beat.]`;
-  if (asksDone >= 4) return `[Ask ${asksDone} is done. Bring the story to its climax; at most one more ask.]`;
-  if (asksDone === 3) return '[Ask 3 is done. The story is past its middle: build toward the climax.]';
-  return `[Ask ${asksDone} is done. Continue the story.]`;
+  if (asksDone >= 4) return `[Ask ${asksDone} is done. Bring the story to its climax; at most one more ask. Two to four narration lines.]`;
+  if (asksDone === 3) return '[Ask 3 is done. The story is past its middle: build toward the climax. Two to four narration lines.]';
+  return `[Ask ${asksDone} is done. Continue the story: two to four narration lines, then the next ask.]`;
 }
 
 /** Plain text of a beat (tests, logs, the offline narrator). */

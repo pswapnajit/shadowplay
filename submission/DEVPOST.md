@@ -7,7 +7,7 @@
 
 **Track:** Entertainment (immersive storytelling). Gaming fits too; see `SUBMIT.md` for the choice.
 **Division:** New Experience
-**Built with:** Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, Claude, Vercel, MediaPipe
+**Built with:** Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, Vercel, MediaPipe
 **Project link:** https://pswapnajit.github.io/shadowplay/
 **Code:** https://github.com/pswapnajit/shadowplay
 **Target launch date:** January 2027 (web), then a Horizon Store listing as an installable web app.
@@ -15,38 +15,41 @@
 
 ---
 
-## Description (paste into the form: 490 words)
+## Description (paste into the form: 497 words)
 
 ### Inspiration
 
-Everyone has made a rabbit on a bedroom wall with a torch, usually while someone told a story. It only works because your real hands are in a real room in front of a real wall. Quest has every ingredient (hand tracking, passthrough, scene understanding), so Shadowplay puts them together and adds the storyteller.
+Everyone has made a rabbit on a bedroom wall with a torch, usually while someone told a story. It only works with real hands in front of a real wall. Quest has every ingredient (hand tracking, passthrough, scene understanding), so Shadowplay puts them together and adds the storyteller.
 
 ### What it does
 
-A paper lantern glides over your shoulder and your real wall lights up as a stage. A golden ghost hand shows you a shape; copy it and your shadow wakes up as a creature. No menus, nothing to read.
+A paper lantern glides over your shoulder and your real wall lights up as a stage. Copy the golden ghost hand's shape and your shadow wakes up as a creature. No menus, nothing to read.
 
-Then the Lantern tells tonight's story, improvised live, and you cast it. When it asks "Who was still awake?", the shadow you make is the answer: make a fox and the fox walks into the tale. Surprise it with a different creature and the story bends around you; need the ghost hand's help and your creature arrives shy; make it talk and it becomes the chatty one. The stage plays along: a moon rises over your wall, rain and snow fall as shadows, and wind swings the lantern so every shadow sways.
+Then the Lantern tells tonight's story, improvised live, and you cast it. When it asks "Who was still awake?", the shadow you make is the answer: make a fox and the fox walks into the tale. Surprise it, and the story bends around you. The stage plays along: a moon rises over your wall, rain and snow fall as shadows, and wind swings the lantern so every shadow sways.
 
 Then come back tomorrow. Every tale leaves a paper keepsake on a garland across your wall, and ends with a promise ("Tomorrow, I'll tell you how the fox lost the moon's reflection") that the Lantern keeps the next night. The moon grows each night you return; when it's full, old friends come back for a Full Moon Tale.
+
+Or play with a friend: they join with a code from their own wall, anywhere (Quest or laptop webcam). Their shadows fall in blue on yours, and the Lantern tells one story to you both.
 
 It's inclusive by default (captions, read-aloud, either hand, seated), with options for hands-free "look to choose" (every hand action has a gaze twin), one-hand stories, gentle shapes, a calm stage, bigger words and high contrast.
 
 ### How we built it
 
-- Immersive Web SDK (WebXR), three.js and TypeScript: open a link, no install.
-- Shadows come from the 25 tracked joints of each hand, projected from the lantern onto the wall as capsules and drawn on the GPU with a physically sized penumbra. Plane detection finds the wall the light would really land on.
+- Immersive Web SDK (WebXR), three.js, TypeScript: open a link, no install.
+- Shadows come from the 25 tracked joints of each hand, projected from the lantern as capsules and drawn on the GPU with a physical penumbra. Plane detection finds the wall the light would really land on.
 - Matching compares shapes by intersection-over-union across rotations and mirrors, with decoys and finger checks so a resting hand never passes.
-- The Lantern is Claude Opus 5.5 behind a small serverless function. Each beat is schema-constrained JSON, streamed step by step, so the first line reaches the wall while the rest is still being written. The history is HMAC-signed and the player's side is structured events only, so it can't be turned into a chatbot.
+- The Lantern is Claude Haiku 5.5 behind a small serverless function. Each beat is schema-constrained JSON, streamed step by step, so the first line reaches the wall while the rest is being written. The history is HMAC-signed and the player's side is structured events only, so it can't be turned into a chatbot.
 - Take Claude away and Shadowplay still stands: an offline understudy storyteller takes over, even mid-story.
+- Two players connect peer to peer over WebRTC, and only shadow shapes travel: never camera images or the room.
 - All sound is synthesised and spatial: each creature is heard from its place on the wall.
 
 ### Challenges
 
-Making an AI storyteller feel live in a headset: streaming finished steps out of half-written JSON, covering the wait with the Lantern's own lines, and never letting a network failure break the story.
+Making an AI storyteller feel live: streaming finished steps out of half-written JSON, covering the wait with the Lantern's own lines, and never letting a network failure break the story.
 
 ### What's next
 
-Two-player shadow plays (one narrates, one casts), choosing what tonight's story is about, and a Horizon Store release. Target launch: January 2027.
+Choosing what tonight's story is about, more creatures, and a Horizon Store release. Target launch: January 2027.
 
 ---
 

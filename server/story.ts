@@ -183,7 +183,8 @@ export async function handleStory(request: Request, deps: StoryDeps = {}): Promi
   if (typeof req === 'string') return json({ type: 'error', code: 'invalid', message: req }, 400);
 
   const api = deps.client ?? (client ??= new Anthropic({ apiKey, maxRetries: 1, timeout: 40_000 }));
-  const model = env('STORY_MODEL') ?? 'claude-opus-5-5';
+  // Haiku: quick (the first line is on the wall in about two seconds) and inexpensive enough to leave open to everyone.
+  const model = env('STORY_MODEL') ?? 'claude-haiku-5-5';
   const effort = (env('STORY_EFFORT') ?? 'low') as 'low' | 'medium' | 'high';
   const encoder = new TextEncoder();
   let closed = false;

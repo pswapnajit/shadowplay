@@ -175,6 +175,31 @@
         font-size: 12px;
         opacity: 0.6;
       }
+      #duet-box {
+        margin: 14px auto 0;
+        max-width: 520px;
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: rgba(20, 13, 8, 0.72);
+        border: 1px solid rgba(243, 201, 122, 0.25);
+        font-size: 15px;
+        color: var(--dim);
+      }
+      #duet-box .code {
+        font-size: 28px;
+        letter-spacing: 0.25em;
+        color: var(--gold);
+        font-style: normal;
+      }
+      #duet-box button {
+        font-size: 14px;
+        padding: 6px 14px;
+        margin-left: 6px;
+      }
+      #duet-box p {
+        margin: 6px 0 0;
+        font-size: 15px;
+      }
       #tonight {
         margin: 14px auto 0;
         max-width: 520px;
@@ -255,6 +280,11 @@
         <div class="row">
           <button id="enter-xr" disabled>Checking for a headset…</button>
           <button id="webcam" class="ghost">Try with your webcam</button>
+          <button id="duet" class="ghost">Play with a friend</button>
+        </div>
+        <div id="duet-box" hidden>
+          <div><span id="duet-label">Your theatre's code</span> <span class="code" id="duet-code"></span><button id="duet-copy" class="ghost" hidden>Copy invite link</button></div>
+          <p id="duet-status" role="status" aria-live="polite"></p>
         </div>
         <label class="aloud" id="aloud" hidden><input type="checkbox" id="read-aloud" /> The Lantern reads the story aloud</label>
         <details id="access">

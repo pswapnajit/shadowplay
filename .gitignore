@@ -56,3 +56,4 @@ tools/pw-test.mjs
 tools/rec-segment.json
 tools/pw-story.json
 tools/pw-access.json
+tools/pw-duet.json

@@ -22,6 +22,7 @@
     "@pmndrs/uikit-horizon": "^1.0.74",
     "@pmndrs/uikit-lucide": "^1.0.74",
     "@vercel/functions": "3.10.1",
+    "peerjs": "1.5.5",
     "three": "npm:super-three@0.181.0"
   },
   "devDependencies": {

@@ -217,7 +217,8 @@ export class OfflineTeller {
     let arrived: CreatureId | null = null;
     if (e.type === 'made') {
       arrived = e.made;
-      if (e.asked !== 'any' && e.asked !== e.made) script.push(say(`You might have expected ${NAME[e.asked]}. Instead, here came ${NAME[e.made]}!`));
+      if (e.friend) script.push(say(`From the far side of the wall, where the other lantern burns, came ${NAME[e.made]}.`));
+      else if (e.asked !== 'any' && e.asked !== e.made) script.push(say(`You might have expected ${NAME[e.asked]}. Instead, here came ${NAME[e.made]}!`));
       else if (e.helped || e.seconds > 30) script.push(say(`It took a little coaxing, but at last ${NAME[e.made]} came.`));
       script.push(say(this.cast.includes(e.made) ? `Back came ${NAME[e.made]}, who had never really gone far.` : ARRIVE[e.made]));
       if (e.calls > 1) script.push(say(`${cap(NAME[e.made])} ${SOUND[e.made]}, twice, just to be sure everyone had noticed.`));

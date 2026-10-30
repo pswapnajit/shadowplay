@@ -25,10 +25,15 @@ export default async function run({ page, frame, workspaceRoot }) {
   if (cfg.step !== 'run') {
     const url = new URL(app.url());
     url.search = cfg.query ?? '?narrator=offline&voice=off';
-    await app.evaluate((fresh) => {
-      localStorage.removeItem('shadowplay.book.v1');
+    await app.evaluate(([fresh, ageDays]) => {
+      // "ageDays": keep the Book of Shadows but move its tales that many nights back (a returning player).
+      if (ageDays) {
+        const book = JSON.parse(localStorage.getItem('shadowplay.book.v1') ?? '[]');
+        for (const t of book) t.at -= ageDays * 86_400_000;
+        localStorage.setItem('shadowplay.book.v1', JSON.stringify(book));
+      } else localStorage.removeItem('shadowplay.book.v1');
       localStorage.setItem('shadowplay.v1', JSON.stringify({ collected: fresh ? ['bird'] : ['bird', 'rabbit', 'dog', 'fox'] }));
-    }, cfg.fresh ?? true);
+    }, [cfg.fresh ?? true, cfg.ageDays ?? 0]);
     await app.goto(url.toString(), { waitUntil: 'load' });
     await app.waitForFunction(() => window.shadowplay?.game?.phase === 'intro', null, { timeout: 20000 }).catch(() => {});
     if (cfg.step === 'prep') return ['loaded'];
