@@ -71,6 +71,8 @@ const HOME_Y = -0.6;
 const REST_T: Record<string, number> = { bird: 0.1, rabbit: 0, dog: 0, wolf: 0, fox: 0, swan: 0, crocodile: 0, deer: 0, butterfly: 0 };
 /** Story stage spots along the ground line, filled in this order. */
 const STAGE_X = [-0.55, 0.55, -0.86, 0.86, -0.3, 0.3];
+/** Seconds into an ask before its question appears (the last narration line fades first). */
+const ASK_SETTLE = 0.6;
 /** Look to choose: seconds of looking that pick a creature, or a caption's action. */
 const DWELL = 1.4;
 const DWELL_CAPTION = 1.8;
@@ -706,6 +708,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const want = this.storyWant;
     this.tickMatch(dt, 'story');
     if (s.phase !== 'asking') return; // a creature just answered
+    // The question waits for the last line of narration to fade, so the two never overlap.
+    if (s.askT < ASK_SETTLE) return;
     if (state.settings.look) {
       // Hands-free: look at a creature (or the outline) to answer; the caption lets the ask go.
       const sub = s.askT > 24 ? 'Or look here to let it go' : want ? `Make the ${want.name}, or look at it` : 'Make a shadow, or look at a creature';
@@ -747,9 +751,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     const r = this.theatre?.shadows;
     if (ask !== 'any') r?.setTarget(this.targets.get(ask)!);
     else r?.setTarget(null);
-    const look = state.settings.look;
-    const sub = ask !== 'any' ? `Make the ${CREATURE_BY_ID[ask].name}${look ? ', or look at it' : ''}` : look ? 'Make a shadow, or look at a creature' : 'Make any shadow you know';
-    this.caption.show(this.story.prompt, sub);
+    // The caption follows once the narration has faded (tickStoryAsk).
+    this.caption.hide();
     return ask;
   }
 
