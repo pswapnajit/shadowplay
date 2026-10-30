@@ -85,7 +85,7 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
     await page.waitForTimeout(500);
     const over = await app.evaluate(() => window.shadowplay.game.phase === 'free' && window.shadowplay.story.phase === 'off' && (window.shadowplay.story.cast.length > 0 || window.shadowplay.story.title !== ''));
     if (over && !doneAt) doneAt = Date.now();
-    if (doneAt && Date.now() - doneAt > (seg.tail ?? 4000)) break;
+    if (doneAt && Date.now() - doneAt > (seg.tail ?? 7000)) break;
   }
   const t1 = await app.evaluate(() => {
     window.shadowplay.state.frozen = true;

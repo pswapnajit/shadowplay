@@ -1,0 +1,11 @@
+{
+  "maxWait": 4.0,
+  "captions": [
+    { "at": "seek", "offset": 0.5, "text": "A ghost hand teaches the first shape. Copy it, and the shadow wakes.", "dur": 5 },
+    { "at": "story", "offset": 1.0, "text": "Then the Lantern tells a story nobody has heard before, told live by Claude.", "dur": 5 },
+    { "at": "ask1", "offset": 0.3, "text": "You answer with your hands: the shadow you make is who comes next.", "dur": 5 },
+    { "at": "ask2", "offset": 0.3, "text": "Make someone else, and the story bends around your surprise.", "dur": 5 },
+    { "at": "cue:snow", "offset": 0.2, "text": "The stage follows the story: snow, rain, thunder, moonrise, dawn.", "dur": 5 },
+    { "at": "end", "offset": 1.2, "text": "Every tale goes into your Book of Shadows. Tomorrow, a new one.", "dur": 5 }
+  ]
+}
