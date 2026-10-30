@@ -8,9 +8,15 @@ shortened (the cut is visible: a short dip), the Lantern's lines are
 subtitled from the recorded transcript, and a title, a few captions and an
 end card are laid over the top.
 
+The game is recorded with `?voice=silent`: the Lantern's voice keeps its timing
+but makes no sound, and the same macOS voice (`say -v Daniel`, at the app's rate)
+is laid in here at each line's recorded time, so the video sounds like the app
+does in Chrome on a Mac.
+
 Usage: python3 tools/build-story-video.py [out.mp4]
 Config (optional) tools/story-video.json:
-  {"segments": ["S1", "S2"], "maxWait": 4.0, "cuts": [[t0, t1]], "captions": [{"at": "ask1", "text": "...", "dur": 4}]}
+  {"segments": ["S1", "S2"], "maxWait": 4.0, "cuts": [[t0, t1]], "voice": "Daniel", "voiceRate": 165,
+   "captions": [{"at": "ask1", "text": "...", "dur": 4}]}
   Caption anchors: start, seek, story, ask<N>, made<N>, cue:<name>, end, free (+ "offset": seconds).
 """
 
@@ -205,8 +211,29 @@ def main():
     overlays.append((card([("Shadowplay", FONT_I, 80, cream, 160, False),
                            ("Hands only. Seated. On your own wall. A new story every night.", FONT, 30, (255, 231, 194, 255), 270, False),
                            ("Play it: pswapnajit.github.io/shadowplay", FONT, 30, (243, 201, 122, 255), 334, True),
-                           ("Footage: Meta IWER Quest 3 emulator with scripted hand input. The story was told live by Claude.", FONT, 18, (255, 241, 214, 200), H - 46, False)],
+                           ("Footage: Meta IWER Quest 3 emulator, scripted hand input. Story told live by Claude; voice: the device's speech synthesis (macOS Daniel).", FONT, 17, (255, 241, 214, 200), H - 46, False)],
                           "end", tmp, backdrop=190), end0, final + 0.5))
+
+    # The Lantern's voice, line by line, at the recorded times.
+    voice_track = None
+    if CFG.get("voice", "Daniel"):
+        vin, vchain, labels = [], [], []
+        for i, s_ in enumerate(says):
+            s0 = mapped(s_["t"])
+            if s0 is None:
+                continue
+            aiff = os.path.join(tmp, f"v{i}.aiff")
+            subprocess.run(["say", "-v", CFG.get("voice", "Daniel"), "-r", str(CFG.get("voiceRate", 165)), "-o", aiff, s_["say"]], check=True)
+            k = len(labels)
+            vin += ["-i", aiff]
+            ms = int(max(0.0, s0 + 0.05) * 1000)
+            vchain.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[l{k}]")
+            labels.append(f"[l{k}]")
+        if labels:
+            vchain.append(f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:duration=longest[vo]")
+            voice_track = os.path.join(tmp, "voice.wav")
+            open(os.path.join(tmp, "voice.txt"), "w").write(";\n".join(vchain))
+            run([*vin, "-/filter_complex", os.path.join(tmp, "voice.txt"), "-map", "[vo]", "-t", f"{final:.3f}", voice_track])
 
     inputs = ["-i", joined]
     chain = []
@@ -228,7 +255,15 @@ def main():
         chain.append(f"[{cur}][o{k}]overlay=0:0:eof_action=pass[x{k}]")
         cur = f"x{k}"
     chain.append(f"[{cur}]fade=t=in:st=0:d=0.8,fade=t=out:st={final - 1.2:.2f}:d=1.2,format=yuv420p[vo]")
-    chain.append(f"[au]afade=t=in:st=0:d=0.6,afade=t=out:st={final - 1.4:.2f}:d=1.4,loudnorm=I=-16:TP=-1.5[ao]")
+    if voice_track:
+        vi = len(overlays) + 1
+        inputs += ["-i", voice_track]
+        chain.append(f"[{vi}:a]volume=1.6[vv]")
+        chain.append("[au]volume=0.8[ag]")
+        chain.append("[ag][vv]amix=inputs=2:normalize=0:duration=first[am]")
+        chain.append(f"[am]afade=t=in:st=0:d=0.6,afade=t=out:st={final - 1.4:.2f}:d=1.4,loudnorm=I=-16:TP=-1.5[ao]")
+    else:
+        chain.append(f"[au]afade=t=in:st=0:d=0.6,afade=t=out:st={final - 1.4:.2f}:d=1.4,loudnorm=I=-16:TP=-1.5[ao]")
     script = os.path.join(tmp, "graph.txt")
     open(script, "w").write(";\n".join(chain))
     run([
