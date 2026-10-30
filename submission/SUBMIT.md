@@ -20,9 +20,23 @@ Deadline: **Nov 18, 2026, 12:00 PT = Nov 19, 01:30 IST.** Aim to submit by Nov 1
 4. **End card** with the link, and a credit saying it's the emulator with scripted hands, stories by Claude, voice by OpenAI text-to-speech.
 
 The Lantern's voice in the video is the game's own (recorded in the page), not dubbed.
-- [ ] Upload to **YouTube as Public** (Unlisted isn't enough; the rules say publicly visible).
+- [ ] Upload to **YouTube as Public** (Unlisted isn't enough; the rules say publicly visible). Audience: *No, it's not made for kids* (that setting turns off comments and other features). Category: Gaming.
   - Title: `Shadowplay: a hand-shadow theatre with an AI storyteller, for Meta Quest (WebXR)`
-  - Description: the tagline, then `Play it: https://pswapnajit.github.io/shadowplay/`, then `Footage: Meta IWER Quest 3 emulator with scripted hand input. Stories improvised live by Claude; the Lantern's voice is OpenAI text-to-speech.`
+  - Thumbnail: `~/Desktop/shadowplay-thumbnail.jpg` (custom thumbnails need a phone-verified YouTube account; skip it otherwise)
+  - Description (the timestamps become chapters):
+    ```
+    A lantern tells a story on your real wall, and your bare hands cast it: shape a shadow and that creature walks into the tale.
+
+    Play it (Meta Quest Browser, or a laptop with a webcam): https://pswapnajit.github.io/shadowplay/
+    Code: https://github.com/pswapnajit/shadowplay
+
+    0:00 The first night: a ghost hand teaches the first shape, then a live story
+    1:32 The next night: the moon has grown, the keepsakes stay, the promise is kept
+    2:03 Play with a friend: two walls, two lanterns, one story
+
+    Footage: Meta IWER Quest 3 emulator with scripted hand input. Stories improvised live by Claude; the Lantern's voice is OpenAI text-to-speech.
+    Made for the Meta VR Start Developer Competition 2026.
+    ```
 - [ ] Paste the YouTube URL into the form.
 
 ## 4. Track: Entertainment or Gaming?
