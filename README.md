@@ -4,7 +4,7 @@
 
 Shadowplay is a hands-first, seated mixed-reality game for Meta Quest, built on the web with Meta's Immersive Web SDK (WebXR). It needs no controllers, no store install and no account. Open the link and play.
 
-- **Play on Quest:** open **https://pswapnajit.github.io/shadowplay/** in Meta Quest Browser and press *Enter the theatre*. Sit facing a wall about 1–3 m away.
+- **Play on Quest:** open **https://pswapnajit.github.io/shadowplay/** in Meta Quest Browser and press *Enter the theatre*. Sit facing a wall about 1–3 m away. (Mirror: https://shadowplay-beta.vercel.app.)
 - **Play on a laptop:** open the same link in Chrome and press *Try with your webcam*. Hand tracking runs in the browser, and the screen becomes the wall.
 
 ![The puppet shapes, as cast by the engine](docs/puppet-shapes.png)

@@ -52,7 +52,8 @@ One entry per person, one prize per entry, so the track is the biggest single ch
 | Tagline | A lantern tells a story on your real wall, and your bare hands cast it: shape a shadow and that creature walks into the tale. |
 | Track | Entertainment (see section 4) |
 | Division | New Experience |
-| Project link | https://pswapnajit.github.io/shadowplay/ |
+| Project link | https://pswapnajit.github.io/shadowplay/ (the main link: if Vercel ever has trouble, this copy still loads and falls back to the offline storyteller and the device's voice) |
+| Try it out links | add all three: the project link, the mirror https://shadowplay-beta.vercel.app, and the code |
 | Code | https://github.com/pswapnajit/shadowplay |
 | Built with | Immersive Web SDK, WebXR, three.js, TypeScript, Web Audio, WebRTC, PeerJS, Claude, OpenAI text-to-speech, Vercel, MediaPipe |
 | Description | the "Description" section of DEVPOST.md (497 words; the form suggests 500 or fewer) |
