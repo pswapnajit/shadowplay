@@ -2,7 +2,7 @@
 // it with the room code (tabs are linked by BroadcastChannel, ?net=local), and
 // the friend's shadows answer the Lantern's asks.
 //   npx @iwsdk/cli browser run tools/pw-duet.mjs --timeout 110000
-// Options in tools/pw-duet.json: { "narrator": "offline" | "live", "realtime": false }
+// Options in tools/pw-duet.json: { "narrator": "offline" | "live", "net": "local" | "peer", "realtime": false }
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 export default async function run({ page, frame, workspaceRoot }) {
@@ -14,7 +14,9 @@ export default async function run({ page, frame, workspaceRoot }) {
   const el = frame ? await frame.frameElement() : null;
   const hostShot = (name) => (el ? el.screenshot({ path: `${out}/${name}.png` }) : page.screenshot({ path: `${out}/${name}.png` }));
   const log = [];
-  const code = 'BCDF';
+  // Over WebRTC ("peer"), a fresh code each run so an old room can't answer.
+  const code = cfg.net === 'peer' ? Array.from({ length: 4 }, () => 'BCDFGHJKLMNPQRSTVWXZ'[Math.floor(Math.random() * 20)]).join('') : 'BCDF';
+  const net = cfg.net === 'peer' ? '' : '&net=local';
   const narrator = cfg.narrator === 'live' ? '' : '&narrator=offline';
 
   await app.evaluate(() => {
@@ -22,7 +24,7 @@ export default async function run({ page, frame, workspaceRoot }) {
     localStorage.setItem('shadowplay.v1', JSON.stringify({ collected: ['bird', 'rabbit', 'fox'] }));
   });
   const base = new URL(app.url());
-  base.search = `?host=${code}&net=local&voice=off${narrator}`;
+  base.search = `?host=${code}${net}&voice=off${narrator}`;
   await app.goto(base.toString(), { waitUntil: 'load' });
   await app.waitForFunction(() => window.shadowplay?.game?.phase === 'intro', null, { timeout: 20000 });
 
@@ -30,10 +32,12 @@ export default async function run({ page, frame, workspaceRoot }) {
   const guest = await page.context().newPage();
   await guest.setViewportSize({ width: 756, height: 469 });
   const join = new URL(base.toString());
-  join.search = `?join=${code}&net=local&voice=off`;
+  join.search = `?join=${code}${net}&voice=off`;
   await guest.goto(join.toString(), { waitUntil: 'load' });
   await guest.waitForFunction(() => window.shadowplay?.game, null, { timeout: 20000 });
-  await guest.waitForFunction(() => document.getElementById('duet-status')?.textContent.startsWith('You’re in'), null, { timeout: 15000 });
+  await guest
+    .waitForFunction(() => document.getElementById('duet-status')?.textContent.startsWith('You’re in'), null, { timeout: 25000 })
+    .catch(async () => log.push(`guest never joined: ${await guest.evaluate(() => document.getElementById('duet-status')?.textContent)}`));
   log.push(`guest: ${await guest.evaluate(() => document.getElementById('duet-status').textContent)}`);
   log.push(`host: ${await app.evaluate(() => document.getElementById('duet-status').textContent)}`);
   await guest.screenshot({ path: `${out}/00-guest-landing.png` });
