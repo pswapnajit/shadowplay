@@ -51,6 +51,10 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
     url.search = cfg.query ?? (cfg.scenario === 'duet' ? `?host=${cfg.code ?? 'BCDF'}&net=local&voice=silent` : '?look&voice=silent');
     await app.goto(url.toString(), { waitUntil: 'load' });
     await app.waitForFunction(() => window.shadowplay?.game?.phase === 'intro', null, { timeout: 20000 }).catch(() => {});
+    // Hold the show until the recording starts (entering XR from the CLI takes a while).
+    await app.evaluate(() => {
+      window.shadowplay.state.frozen = true;
+    });
     return ['loaded', url.search, await app.evaluate(() => document.getElementById('tonight')?.textContent ?? '')];
   }
 
@@ -135,20 +139,31 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
     guestFrames = await screencast(guestCdp, `${out}-guest`);
   }
   await page.waitForTimeout(300);
-  const t0 = await app.evaluate(() => performance.timeOrigin + performance.now());
+  // Curtain up: the show was held since the page loaded, and now begins (the lantern's entrance included).
+  const t0 = await app.evaluate(() => {
+    window.shadowplay.theatre.restartShow();
+    window.shadowplay.state.frozen = false;
+    return performance.timeOrigin + performance.now();
+  });
 
   // Points the headset at wall point (x, y), like a seated player turning their head.
   const aim = (x, y) =>
     app.evaluate(
       ([x, y]) => {
         const st = window.shadowplay.state.stage;
+        if (!st) return; // the wall isn't placed yet
         const H = window.shadowplay.state.head.position;
         const d = [0, 1, 2].map((i) => st.wallPoint[i] + st.wallRight[i] * x + st.wallUp[i] * y - H[i]);
         const len = Math.hypot(...d);
         const yaw = Math.atan2(-d[0] / len, -d[2] / len);
         const pitch = Math.asin(d[1] / len);
         const [cy, sy, cp, sp] = [Math.cos(yaw / 2), Math.sin(yaw / 2), Math.cos(pitch / 2), Math.sin(pitch / 2)];
-        window.IWER_DEVICE.quaternion.set(cy * sp, sy * cp, -sy * sp, cy * cp);
+        const q = { x: cy * sp, y: sy * cp, z: -sy * sp, w: cy * cp };
+        // Queued through the emulator's remote control: that switches the headset to programmatic
+        // control (otherwise the emulator's own UI re-applies its pose every frame).
+        const dev = window.IWER_DEVICE;
+        if (dev.remote?.enqueueDiscrete) void dev.remote.enqueueDiscrete('set_transform', { device: 'headset', orientation: q });
+        else dev.quaternion.set(q.x, q.y, q.z, q.w);
       },
       [x, y],
     );
@@ -167,6 +182,7 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
   if (cfg.scenario === 'night') {
     // Looking at the middle of the wall while the Lantern opens.
     const centre = [0, 0.12];
+    await app.waitForFunction(() => window.shadowplay.state.stage, null, { timeout: 15000 });
     await aim(...centre);
     let answered = 0;
     while (Date.now() < deadline && answered < (cfg.asks ?? 1)) {
@@ -176,7 +192,8 @@ export default async function run({ page, frame, cdp, workspaceRoot }) {
         const shelf = g.living.filter((l) => l.mode === 'home' && !l.visitor).map((l) => ({ id: l.def.id, x: l.x, y: l.y + g.shelfLift, s: l.s }));
         return { phase: st.phase, ask: st.ask, askT: st.askT, outline: [g.ox, g.oy], shelf };
       });
-      if (s.phase === 'asking' && s.askT > 1.2) {
+      // (once the shelf has risen into the light for choosing)
+      if (s.phase === 'asking' && s.askT > 2.4) {
         // Answer by looking: the outline if one is asked for, else a friend on the shelf.
         let to;
         if (s.ask !== 'any') to = s.outline;

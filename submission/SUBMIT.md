@@ -12,14 +12,18 @@ Deadline: **Nov 18, 2026, 12:00 PT = Nov 19, 01:30 IST.** Aim to submit by Nov 1
 - [ ] Vercel → shadowplay → Settings → Environment Variables: add **`OPENAI_API_KEY`** (the Lantern's voice), then redeploy. Until then the site reads with the device's voice.
 - [ ] Set **monthly spend limits** on both keys (Anthropic about $20, OpenAI about $20; a story costs about 4 cents of voice), and replace both keys after winners are announced.
 
-## 3. Video (to re-record with story mode)
-The current `~/Desktop/shadowplay-demo.mp4` (1:54) predates story mode. Once the Lantern is live, Claude records a new cut in the IWER emulator with `?director&story`: the tutorial, then a real, unscripted Claude story answered by scripted hands, kept under 3 minutes. The rules say to *lead with the story and what makes the project distinct*, and to show real gameplay honestly.
-- [ ] Upload the new video to **YouTube as Public** (Unlisted is *not* enough; the rules say publicly visible).
-  - Title: `Shadowplay — a hand-shadow theatre with an AI storyteller, for Meta Quest (WebXR)`
-  - Description: the tagline below plus the play link `https://pswapnajit.github.io/shadowplay/`
-- [ ] Paste the YouTube URL into the form.
+## 3. Video: done, ready to upload
+**`~/Desktop/shadowplay-demo-v2.mp4`** (2:37, 1280×720), cut by `tools/build-demo.py` from recordings in Meta's IWER Quest 3 emulator (scripted hands; the game reacts for real). It leads with the story, as the rules ask:
+1. **First night (1:32).** The lantern arrives, the ghost hand teaches the first shape, then a live Claude story: the player's shadows answer the asks, a fox turns up instead of the bird the Lantern asked for and the tale bends around it, lightning and dawn, then the title card, the keepsake dropping onto the garland, and the Lantern's promise for tomorrow.
+2. **The next night (0:31).** The moon has grown, the keepsakes are still on the wall, the Lantern keeps its promise, and the first answer is given hands-free, by looking.
+3. **With a friend (0:29).** Two walls, two lanterns, one story: the friend's shadow (in blue) answers from their laptop, shown inset.
+4. **End card** with the link, and a credit saying it's the emulator with scripted hands, stories by Claude, voice by OpenAI text-to-speech.
 
-The footage comes from Meta's IWER Quest 3 emulator, which the rules allow ("via XR Simulator, or another equivalent emulator"), driven by scripted hand input. The end card says so, which keeps the video honest.
+The Lantern's voice in the video is the game's own (recorded in the page), not dubbed.
+- [ ] Upload to **YouTube as Public** (Unlisted isn't enough; the rules say publicly visible).
+  - Title: `Shadowplay: a hand-shadow theatre with an AI storyteller, for Meta Quest (WebXR)`
+  - Description: the tagline, then `Play it: https://pswapnajit.github.io/shadowplay/`, then `Footage: Meta IWER Quest 3 emulator with scripted hand input. Stories improvised live by Claude; the Lantern's voice is OpenAI text-to-speech.`
+- [ ] Paste the YouTube URL into the form.
 
 ## 4. Track: Entertainment or Gaming?
 
@@ -40,7 +44,7 @@ One entry per person, one prize per entry, so the track is the biggest single ch
 | Description | the "Description" section of DEVPOST.md (497 words; the form suggests 500 or fewer) |
 | Hand interactions | the "How hand interactions are implemented" section of DEVPOST.md |
 | Target launch date | January 2027 |
-| Images | upload `submission/gallery/*.jpg` (add story-mode stills after the new recording) |
+| Images | upload `submission/gallery/story-*.jpg` first (story, keepsake, next night, look to choose, a friend's shadow), then any of the others |
 
 ## 6. Every prize, and what Shadowplay brings to it
 

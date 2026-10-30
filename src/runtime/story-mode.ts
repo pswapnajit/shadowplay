@@ -120,7 +120,9 @@ export class StoryMode {
     this.waitT = 0;
     this.holdT = 1.3;
     const nowMs = Date.now();
-    const daypart = daypartOf(new Date(nowMs).getHours());
+    // `?hour=21`: the time of day for a test or a recording (the browser's own clock otherwise).
+    const hourParam = Number(new URLSearchParams(location.search).get('hour') ?? NaN);
+    const daypart = daypartOf(Number.isInteger(hourParam) && hourParam >= 0 && hourParam < 24 ? hourParam : new Date(nowMs).getHours());
     const now = daypart === 'evening' || daypart === 'night' ? 'Tonight' : 'Today';
     // Every night the player comes back, the moon over the theatre grows; it rises as the show opens.
     this.night = nightNumber(book, nowMs);

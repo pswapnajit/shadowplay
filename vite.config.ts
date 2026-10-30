@@ -52,6 +52,7 @@ function storyApi(): Plugin {
             }
             res.end();
           } catch (error) {
+            console.error(`[${path}] failed:`, error);
             res.statusCode = 500;
             res.end(JSON.stringify({ type: 'error', code: 'unavailable', message: (error as Error).message }));
           }

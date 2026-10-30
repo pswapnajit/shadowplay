@@ -21,6 +21,8 @@ export class AudioEngine {
   private lanternOut: PannerNode | null = null;
   /** In the headset the Lantern speaks from over the shoulder; on a screen, straight out. */
   private immersive = false;
+  /** `?record`: the voice stays centred (a recording is heard on speakers, not in the room). */
+  private readonly centred = typeof location !== 'undefined' && new URLSearchParams(location.search).has('record');
 
   /** Must be called from a user gesture (Enter XR click, first pinch…). */
   start(): void {
@@ -166,7 +168,7 @@ export class AudioEngine {
     src.buffer = buf;
     const g = ctx.createGain();
     g.gain.value = this.muted ? 0 : volume;
-    src.connect(g).connect(this.immersive && this.lanternOut ? this.lanternOut : this.master);
+    src.connect(g).connect(this.immersive && this.lanternOut && !this.centred ? this.lanternOut : this.master);
     const amb = this.ambience?.gain;
     amb?.setTargetAtTime(Math.min(amb.value, 0.6), ctx.currentTime, 0.2);
     src.addEventListener('ended', () => amb?.setTargetAtTime(this.ambienceLevel, ctx.currentTime, 0.6));
