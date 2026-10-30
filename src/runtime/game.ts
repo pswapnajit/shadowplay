@@ -129,6 +129,8 @@ export class GameSystem extends createSystem({}) implements StoryHost {
   private toldThisSession = false;
   /** Shelf creatures dim while a story is on stage: they become its audience. */
   private shelfDim = 1;
+  /** Hands-free players pick from the shelf, so it rises a little into the light while they choose. */
+  private shelfLift = 0;
   /** Every finished tale's keepsake, hanging on a thread across the theatre. */
   garland = new Garland(keepsakesOf(loadBook()));
 
@@ -211,10 +213,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     this.order = state.settings.oneHand ? CREATURES.filter((c) => c.hands.length === 1) : CREATURES;
     // Returning players find their menagerie waiting.
     this.living = [];
-    let slot = 0;
     for (const c of CREATURES) {
       if (!this.collected.has(c.id)) continue;
-      const home = this.homeOf(c, slot++);
+      const home = this.homeOf(c);
       this.living.push(this.makeLiving(c, home[0], home[1], home[2], -1, 'home'));
     }
     this.idx = this.order.findIndex((c) => !this.collected.has(c.id));
@@ -871,14 +872,29 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     };
   }
 
-  /** Shelf positions along the bottom rim of the light pool (up to nine creatures). */
-  private homeOf(def: CreatureDef, slot?: number): [number, number, number] {
-    const i = Math.max(0, slot ?? [...this.collected].indexOf(def.id)) % 9;
-    const x = -0.76 + i * 0.19;
+  private readonly home3: [number, number, number] = [0, 0, 0];
+
+  /**
+   * A creature's place on the shelf along the bottom rim of the light pool:
+   * centred on however many creatures there are (so a small menagerie sits
+   * in the brightest light), in the creatures' own order. Shared result: copy it.
+   */
+  private homeOf(def: CreatureDef): [number, number, number] {
+    let i = 0;
+    let n = 0;
+    for (const c of CREATURES) {
+      if (!this.collected.has(c.id)) continue;
+      if (c === def) i = n;
+      n++;
+    }
+    const x = (i - (Math.max(1, n) - 1) / 2) * 0.19;
     const y = HOME_Y + 0.22 * Math.pow(x / 0.8, 2); // the rim curves up at the sides
     const lift = def.id === 'butterfly' ? 0.16 : def.id === 'bird' ? 0.06 : 0;
-    const s = def.id === 'deer' ? 0.3 : def.id === 'crocodile' ? 0.32 : 0.38;
-    return [x, y + lift, s];
+    const h = this.home3;
+    h[0] = x;
+    h[1] = y + lift;
+    h[2] = def.id === 'deer' ? 0.3 : def.id === 'crocodile' ? 0.32 : 0.38;
+    return h;
   }
 
   private animate(dt: number, _time: number): void {
@@ -887,6 +903,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
     // Hands-free players choose from the shelf, so it lights up while the story asks.
     const choosing = state.settings.look && this.phase === 'story' && this.story.phase === 'asking';
     const dimTo = this.phase === 'story' && !choosing ? 0.3 : 1;
+    this.shelfLift += ((choosing || (state.settings.look && this.phase === 'free') ? 0.12 : 0) - this.shelfLift) * Math.min(1, dt * 2);
     this.shelfDim += (dimTo - this.shelfDim) * Math.min(1, dt * 1.5);
     for (const lv of this.living) {
       lv.modeT += dt;
@@ -938,6 +955,14 @@ export class GameSystem extends createSystem({}) implements StoryHost {
           break;
         }
         case 'home': {
+          // The shelf makes room when a newcomer arrives: everyone slides to their new place.
+          if (!lv.visitor) {
+            const [hx, hy, hs] = this.homeOf(lv.def);
+            const k = Math.min(1, dt * 2);
+            lv.x += (hx - lv.x) * k;
+            lv.y += (hy - lv.y) * k;
+            lv.s += (hs - lv.s) * k;
+          }
           // mostly still, with an occasional flourish
           const moving = lv.def.id === 'bird' || lv.def.id === 'butterfly' || lv.def.id === 'swan';
           lv.t += dt * (moving ? 0.35 : 0);
@@ -957,8 +982,9 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       if (lv.alpha <= 0.01) continue;
       const rig = RIGS[lv.def.id];
       const breathe = lv.mode === 'home' ? 1 + Math.sin(lv.modeT * 2 + lv.x * 7) * 0.012 : 1;
-      const alpha = lv.mode === 'home' && !lv.visitor ? lv.alpha * this.shelfDim : lv.alpha;
-      w.begin(lv.x, lv.y, lv.s * breathe, lv.facing, alpha);
+      const shelf = lv.mode === 'home' && !lv.visitor;
+      const alpha = shelf ? lv.alpha * this.shelfDim : lv.alpha;
+      w.begin(lv.x, lv.y + (shelf ? this.shelfLift : 0), lv.s * breathe, lv.facing, alpha);
       rig(w, lv.t, lv.action);
     }
     // The garland hangs low in the light while the show opens and when a tale ends, and up out of the way otherwise.
@@ -1075,7 +1101,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
         let best = 0.11;
         for (const lv of this.living) {
           if (lv.mode !== 'home' || lv.visitor || lv.alpha < 0.5) continue;
-          const y = lv.y + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2;
+          const y = lv.y + this.shelfLift + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2;
           const d = Math.hypot(gx - lv.x, gy - y);
           if (d < best) {
             best = d;
@@ -1127,7 +1153,7 @@ export class GameSystem extends createSystem({}) implements StoryHost {
       return;
     }
     if (!lv) return;
-    const m = lookMatch(lv.x, lv.y + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2, 0.1);
+    const m = lookMatch(lv.x, lv.y + this.shelfLift + ((RIG_HEIGHT[lv.def.id] ?? 0.3) * lv.s) / 2, 0.1);
     if (asking) this.wakeStory(lv.def, m);
     else if (this.phase === 'free') {
       const cd = this.cooldown.get(lv.def.id) ?? 0;

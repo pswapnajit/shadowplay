@@ -14,17 +14,18 @@ Shadowplay is a hands-first, seated mixed-reality game for Meta Quest, built on 
 1. **The lantern arrives.** A small light appears in front of you, glides over your shoulder, and your wall lights up in a warm pool. The rest of the room dims.
 2. **A golden ghost hand shows you the first shape.** You copy it, and your shadow appears on the wall: your real wall, found with scene understanding. The outline glows as your shadow gets closer, and when it matches the shadow wakes up with a flash and its own little melody.
 3. **The Lantern tells a story.** It improvises a new tale one beat at a time, and each time it asks who comes next ("Who was still awake?"), you answer by making a shadow. New creatures are taught on the spot: their outline appears and the ghost hand demonstrates. A moon rises over your wall, rain falls as shadows, thunder flashes, and the creatures you make act out the story.
-4. **The Book of Shadows.** Each story ends with a title card and is kept. The Lantern remembers earlier nights, and every creature you've woken waits on a shelf at the bottom of the light.
+4. **A reason to come back tomorrow.** Each story ends with a title card, and its keepsake (a paper star, a shell, a bell…) drops onto a garland that stays on your wall. Then the Lantern makes a promise ("Tomorrow, I'll tell you how the fox lost the moon's reflection") and keeps it the next night. The moon over the theatre grows every night you come back; when it's full, old friends return for a Full Moon Tale. Every tale goes into your Book of Shadows, and every creature you've woken waits on a shelf at the bottom of the light.
 5. **Free play.** Make any shape you've learned, any time, and that creature comes out to play. Hold a thumbs-up for another story.
 
 ## Story mode
 
 The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behind a small serverless function (`api/story.ts`, with the logic in `server/story.ts`).
 
-- **One beat at a time.** Each beat is a JSON script, constrained by a schema (`src/story/protocol.ts`): narration lines, stage cues (night, moon, stars, wind, rain, snow, thunder, fireflies, dawn, calm) and creature actions (walk, run, hop, fly, sleep, hide, dance, call, look, bow, leave), in performance order. It ends with the next ask (a creature, or "any") or with the end: a title and a one-line summary.
+- **One beat at a time.** Each beat is a JSON script, constrained by a schema (`src/story/protocol.ts`): narration lines, stage cues (night, moon, stars, wind, rain, snow, thunder, fireflies, dawn, calm) and creature actions (walk, run, hop, fly, sleep, hide, dance, call, look, bow, leave), in performance order. It ends with the next ask (a creature, or "any") or with the end: a title, a one-line summary, the keepsake the tale leaves behind and a promise for tomorrow night.
 - **Streamed step by step.** The server scans the still-generating JSON and forwards each step as soon as it is complete (`src/story/json-stream.ts`), so the first line reaches the wall while the rest of the beat is being written.
 - **The player answers with events, not text.** Which creature they made, what was asked, how long it took, whether the ghost hand helped, how often the creature called out. The Lantern bends the tale around it.
 - **Stateless and tamper-proof.** The client keeps the conversation. Every beat the server returns is HMAC-signed, and a request whose history doesn't verify is rejected, so the client can replay the Lantern's words but can't invent them. With only structured events on the player's side, the endpoint isn't a general chatbot. Per-IP and global hourly limits, an origin allowlist, a small `max_tokens`, prompt caching on the static prompt, and the API's server-side refusal fallback complete it.
+- **It remembers.** The opening event tells the Lantern which night this is (the moon's phase), the creatures the player knows, and up to three earlier tales. Each finished tale comes back signed together with its promise, so the next night the Lantern can be held to its own words and nothing else.
 - **The understudy.** If the story server can't be reached, the request fails or the key is missing, a hand-written offline storyteller (`src/story/offline.ts`) takes over the rest of the story. It speaks the same protocol and still reacts to surprises and silences, so the game never depends on the network.
 
 `?narrator=offline` forces the understudy, and `?story=off` plays the classic creature-by-creature lessons instead of stories.
@@ -56,6 +57,16 @@ The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behi
 - **Short sessions:** each creature takes under a minute, and progress saves automatically.
 - **Laptop mode:** the full game also runs with a webcam, for anyone without a headset.
 
+Options under **Comfort & access** on the start page (remembered on the device):
+
+- **Look to choose:** play hands-free. Every hand interaction has a gaze twin: look at an outline to wake it, at a creature on the shelf to call it into the story, at the caption to skip, let an ask go or start another story. A gold ring fills while you look. In the headset it follows your head; on a laptop, the pointer (so a head mouse or eye tracker works too).
+- **One hand:** lessons and stories use only the six one-handed creatures.
+- **Gentle shapes:** creatures wake from a looser shadow, and the ghost hand helps sooner.
+- **Calm stage:** no lightning flashes and no swaying lantern.
+- **Bigger words** and **high contrast** (a brighter, even light; darker, crisper shadows; edged text).
+
+Each also works as a link flag for one visit: `?look`, `?onehand`, `?gentle`, `?calm`, `?bigtext`, `?contrast`.
+
 ## How it works
 
 **Shadows from hand tracking.** Each tracked joint (25 per hand, from WebXR Hand Input) is treated as a sphere and each bone as a tapered capsule. Cast from the lantern's position onto the wall plane, a sphere becomes a disc and a capsule becomes the 2D convex hull of two discs. So a hand's shadow is about 46 small 2D shapes rather than a mesh. Bridges between touching fingers close the gaps that a bare skeleton would leave, and a short forearm, aimed at an estimated elbow, fades into the dark.
@@ -70,7 +81,7 @@ The Lantern is [Claude](https://www.anthropic.com/claude) (Claude Opus 5.5) behi
 
 **The story's stage.** Stage cues drive the wall shader: a moon that rises into the dark above the light, twinkling stars, fireflies, lightning and a dawn glow are composited over passthrough. Rain and snow fall between the lantern and the wall, so they're drawn as shadows. Wind swings the lantern, and every shadow sways with it. Story creatures take spots along a ground line and act out stage directions with the same rigs.
 
-**Sound.** Everything is synthesised in Web Audio: a plucked-string melody per creature (Karplus–Strong), chimes, chirps, barks and howls, rain, wind, crickets, thunder, a dawn chorus, and the Lantern's wordless murmur as each word of the story appears. A room tone with candle crackle runs underneath. There are no audio files.
+**Sound.** Everything is synthesised in Web Audio: a plucked-string melody per creature (Karplus–Strong), chimes, chirps, barks and howls, rain, wind, crickets, thunder, a dawn chorus, and the Lantern's wordless murmur as each word of the story appears. A room tone with candle crackle runs underneath. There are no audio files. Creature sounds are spatial (HRTF panners placed where each creature stands on the wall), and the Lantern's murmur comes from over your shoulder, wherever you turn your head.
 
 **Webcam mode.** MediaPipe's hand landmarker (run locally in the browser, self-hosted) gives 21 landmarks per hand. They are mapped onto the same 25-joint skeleton the headset uses, with metacarpal joints placed where a real tracked hand has them. A round-trip test (`tests/webcam-bridge.test.ts`) checks that a hand passed through the webcam path casts the same shadow.
 

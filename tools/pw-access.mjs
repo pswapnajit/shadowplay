@@ -84,7 +84,7 @@ export default async function run({ page, frame, workspaceRoot }) {
     const s = await app.evaluate(() => {
       const g = window.shadowplay.game;
       const st = window.shadowplay.story;
-      const shelf = g.living.filter((l) => l.mode === 'home' && !l.visitor).map((l) => ({ id: l.def.id, x: l.x, y: l.y, s: l.s }));
+      const shelf = g.living.filter((l) => l.mode === 'home' && !l.visitor).map((l) => ({ id: l.def.id, x: l.x, y: l.y + g.shelfLift, s: l.s }));
       return {
         phase: g.phase,
         sp: st.phase,
