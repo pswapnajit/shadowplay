@@ -7,6 +7,8 @@ import projectOptions from 'virtual:iwsdk-project';
 import { CREATURE_BY_ID, CREATURES } from './core/creatures.js';
 import { audio } from './runtime/audio.js';
 import { DemoHandsSystem } from './runtime/demo-hands.js';
+import { loadBook } from './story/book.js';
+import { CAST } from './story/protocol.js';
 import { DirectorSystem } from './runtime/director.js';
 import { GameSystem } from './runtime/game.js';
 import { state } from './runtime/state.js';
@@ -56,11 +58,15 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   );
 
   const params = new URLSearchParams(location.search);
+  // Story mode is the default; `?story=off` plays the classic lessons, and the
+  // original director script (the first demo video) records them too.
+  game.storyOn = params.get('story') !== 'off' && !(params.has('director') && !params.has('story'));
   if (params.has('director')) {
     world.registerSystem(DirectorSystem, { priority: 85 });
     const director = world.getSystem(DirectorSystem)!;
     director.theatre = theatre;
     director.game = game;
+    director.story = params.has('story');
     (window as unknown as { director: unknown }).director = director;
   }
   if (params.has('demo')) {
@@ -129,7 +135,36 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
     void webcam.start();
   });
 
+  // The Book of Shadows: every tale told on this device, newest first.
+  const showBook = () => {
+    const book = loadBook();
+    const el = document.getElementById('book') as HTMLDetailsElement;
+    el.hidden = book.length === 0;
+    if (!book.length) return;
+    el.querySelector('summary')!.textContent = `Your Book of Shadows · ${book.length} ${book.length === 1 ? 'tale' : 'tales'}`;
+    const list = el.querySelector('ol')!;
+    list.replaceChildren(
+      ...book
+        .slice()
+        .reverse()
+        .map((t) => {
+          const li = document.createElement('li');
+          const title = document.createElement('span');
+          title.className = 't';
+          title.textContent = t.title;
+          const meta = document.createElement('span');
+          meta.className = 'm';
+          const cast = t.cast.map((c) => CAST[c].name).join(', ');
+          meta.textContent = `${new Date(t.at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${cast ? ` · ${cast}` : ''}`;
+          li.append(title, document.createTextNode(` ${t.summary}`), meta);
+          return li;
+        }),
+    );
+  };
+  showBook();
+
   world.visibilityState.subscribe((v) => {
+    if (v === VisibilityState.NonImmersive) showBook();
     landing.classList.toggle('hidden', v !== VisibilityState.NonImmersive || webcam.status === 'running');
     if (v === VisibilityState.Visible) {
       audio.start();
@@ -140,5 +175,5 @@ World.create(document.getElementById('scene-container') as HTMLDivElement, proje
   });
 
   // Debug handle for the dev tools / automated checks.
-  (window as unknown as { shadowplay: unknown }).shadowplay = { world, theatre, game, demo, webcam, state, audio };
+  (window as unknown as { shadowplay: unknown }).shadowplay = { world, theatre, game, demo, webcam, state, audio, story: game.story, creatures: CREATURE_BY_ID };
 });

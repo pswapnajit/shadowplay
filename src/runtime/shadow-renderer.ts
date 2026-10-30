@@ -210,6 +210,13 @@ export class ShadowRenderer {
         uFlash: { value: 0 },
         uExtent: { value: NORM_EXTENT },
         uVirtualWall: { value: 0 },
+        // Story stage: x night, y dawn, z stars, w moon
+        uSky: { value: new Vector4(0, 0, 0, 0) },
+        // x rain, y snow, z fireflies, w lightning flash
+        uWeather: { value: new Vector4(0, 0, 0, 0) },
+        uMoon: { value: new Vector2(-0.82, 0.8) },
+        // Wind: the lantern sways, and every shadow with it (wall metres).
+        uSway: { value: new Vector2(0, 0) },
       },
       vertexShader: /* glsl */ `
         uniform float uS;
@@ -232,6 +239,10 @@ export class ShadowRenderer {
         uniform float uFlash;
         uniform float uExtent;
         uniform float uVirtualWall;
+        uniform vec4 uSky;
+        uniform vec4 uWeather;
+        uniform vec2 uMoon;
+        uniform vec2 uSway;
         varying vec2 vP;
 
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -241,16 +252,86 @@ export class ShadowRenderer {
           return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
         }
 
+        // "Over" compositing of a light layer (colour lc, coverage k) onto (col, a).
+        void over(inout vec3 col, inout float a, vec3 lc, float k) {
+          k = clamp(k, 0.0, 1.0);
+          float na = k + a * (1.0 - k);
+          col = (lc * k + col * a * (1.0 - k)) / max(na, 1e-4);
+          a = na;
+        }
+
+        // Rain as the theatre draws it: thin slanted streaks of shadow, falling.
+        float rainField(vec2 p, float t) {
+          vec2 q = vec2(p.x + p.y * 0.2, p.y);
+          float colw = 0.032;
+          float c = floor(q.x / colw);
+          float h = hash(vec2(c, 3.7));
+          float sp = 2.0 + h * 1.4;
+          float y = q.y * 1.4 + t * sp + h * 7.0;
+          float f = fract(y);
+          float len = 0.12 + 0.08 * h;
+          float streak = smoothstep(0.0, 0.02, f) * (1.0 - smoothstep(len * 0.5, len, f));
+          float lane = 1.0 - smoothstep(0.06, 0.2, abs(fract(q.x / colw) - 0.5));
+          return streak * lane * step(0.5, hash(vec2(c, floor(y))));
+        }
+
+        // Snow: soft round flakes drifting down and sideways, two layers deep.
+        float snowField(vec2 p, float t) {
+          float s = 0.0;
+          for (int L = 0; L < 2; L++) {
+            float fl = float(L);
+            float sc = 6.0 + fl * 5.0;
+            vec2 q = p * sc;
+            q.y += t * (0.5 + fl * 0.35);
+            q.x += sin(q.y * 0.8 + t * 0.7 + fl * 2.0) * 0.3;
+            vec2 cell = floor(q);
+            vec2 f = fract(q) - 0.5;
+            float h = hash(cell + fl * 17.0);
+            vec2 o = vec2(hash(cell + 3.1), hash(cell + 7.7)) - 0.5;
+            float r = 0.07 + 0.08 * h;
+            s = max(s, (1.0 - smoothstep(r * 0.5, r, length(f - o * 0.55))) * step(0.4, h));
+          }
+          return s;
+        }
+
+        float starField(vec2 p, float t) {
+          vec2 q = p * 24.0;
+          vec2 cell = floor(q);
+          float h = hash(cell);
+          if (h < 0.9) return 0.0;
+          vec2 o = (vec2(hash(cell + 1.3), hash(cell + 2.9)) - 0.5) * 0.6;
+          float d = length(fract(q) - 0.5 - o);
+          float tw = 0.55 + 0.45 * sin(t * (1.5 + h * 4.0) + h * 40.0);
+          return ((1.0 - smoothstep(0.03, 0.12, d)) + (1.0 - smoothstep(0.05, 0.3, d)) * 0.25) * tw * min(1.0, (h - 0.9) * 16.0);
+        }
+
+        float fireflyField(vec2 p, float t) {
+          float g = 0.0;
+          for (int i = 0; i < 9; i++) {
+            float fi = float(i);
+            vec2 c = (vec2(noise(vec2(t * 0.12 + fi * 3.1, fi * 1.7)), noise(vec2(fi * 2.3, t * 0.1 + fi * 5.3))) - 0.5) * vec2(2.2, 1.4);
+            float blink = 0.5 + 0.5 * sin(t * (1.1 + fi * 0.23) + fi * 2.0);
+            vec2 d = p - c;
+            float dd = dot(d, d);
+            g += (exp(-dd / 0.00025) + exp(-dd / 0.003) * 0.3) * blink;
+          }
+          return g;
+        }
+
         void main() {
-          vec2 uv = vP / uS + 0.5;
+          vec2 uv = (vP - uSway) / uS + 0.5;
           vec4 sh = texture2D(uShadow, uv);
           float shadow = clamp(max(sh.r, sh.g), 0.0, 1.0);
 
           // Candle-like flicker and a soft, slightly uneven pool of light.
           float flick = 0.94 + 0.04 * sin(uTime * 7.3) + 0.03 * sin(uTime * 13.1 + 1.7) + 0.02 * noise(vec2(uTime * 3.0, 0.0));
-          float r = length(vP - uPool.xy) / uPool.z;
+          float r = length(vP - uPool.xy - uSway * 0.7) / uPool.z;
           float pool = (1.0 - smoothstep(0.5, 1.0, r + 0.05 * (noise(vP * 3.0) - 0.5))) * uPool.w;
           float grain = 0.92 + 0.08 * noise(vP * 90.0);
+
+          // Weather falls between the lantern and the wall, so it casts shadows too.
+          if (uWeather.x > 0.004) shadow = max(shadow, rainField(vP, uTime) * 0.5 * uWeather.x);
+          if (uWeather.y > 0.004) shadow = max(shadow, snowField(vP, uTime) * 0.6 * uWeather.y);
 
           // Target outline, mapped into the target's normalised frame.
           vec2 q = (vP - uTX.xy) / uTX.z;
@@ -266,10 +347,34 @@ export class ShadowRenderer {
           float outline = band * shimmer * uTVis * inBounds;
           float fillHint = (1.0 - smoothstep(-0.02, 0.0, sdf)) * uTVis * inBounds * 0.10;
 
-          vec3 warm = vec3(1.0, 0.80, 0.52);
-          float lit = pool * 0.34 * flick * grain;
+          // Night cools the lantern light; dawn warms it towards rose and gold.
+          // (moonlight blue at the edges, the lantern's own warmth kept at the centre)
+          vec3 warm = mix(vec3(1.0, 0.80, 0.52), vec3(0.62, 0.72, 1.0), uSky.x * 0.6 * smoothstep(0.15, 0.95, r));
+          warm = mix(warm, vec3(1.0, 0.74, 0.62), uSky.y * 0.5);
+          float lit = pool * 0.34 * flick * grain * (1.0 - 0.2 * uSky.x + 0.25 * uSky.y);
           float dark = shadow * pool;
           float shadowAlpha = mix(0.72, 0.9, uContrast - 1.0);
+
+          // Lights in the sky above the stage: the moon, stars, fireflies, dawn.
+          float md = length(vP - uMoon);
+          float moon = (1.0 - smoothstep(0.1, 0.112, md)) * (0.88 + 0.12 * noise((vP - uMoon) * 22.0)) * uSky.w;
+          float moonHalo = exp(-md * md / 0.05) * 0.35 * uSky.w;
+          float stars = uSky.z > 0.004 ? starField(vP, uTime) * uSky.z * (1.0 - pool * 0.8) : 0.0;
+          float flies = uWeather.z > 0.004 ? fireflyField(vP, uTime) * uWeather.z : 0.0;
+          // Sky lights fade out towards the stage's edges, so the plane's square never shows.
+          float m = max(abs(vP.x), abs(vP.y)) / (0.5 * uS);
+          // broad glows fall off in a circle (a square mask would show its corners)
+          float edge = 1.0 - smoothstep(0.5, 0.98, length(vP) / (0.5 * uS));
+          moon *= 1.0 - smoothstep(0.93, 1.0, m);
+          moonHalo *= edge;
+          stars *= 1.0 - smoothstep(0.8, 0.98, m);
+          flies *= 1.0 - smoothstep(0.8, 0.98, m);
+          float dawnGlow = uSky.y * smoothstep(1.1, -1.3, vP.y) * 0.32 * edge;
+          float bolt = uWeather.w * edge;
+          vec3 moonCol = vec3(0.93, 0.95, 1.0);
+          vec3 flyCol = vec3(0.85, 1.0, 0.45);
+          vec3 dawnCol = vec3(1.0, 0.6, 0.42);
+          vec3 boltCol = vec3(0.86, 0.9, 1.0);
 
           vec3 col = warm;
           float a = lit * (1.0 - dark) + dark * shadowAlpha;
@@ -287,15 +392,24 @@ export class ShadowRenderer {
 
           if (uVirtualWall > 0.5) {
             // desktop preview: opaque plaster wall, dimly lit outside the pool
-            vec3 plaster = vec3(0.16, 0.14, 0.13) * (0.9 + 0.1 * noise(vP * 40.0));
+            vec3 plaster = vec3(0.16, 0.14, 0.13) * (0.9 + 0.1 * noise(vP * 40.0)) * (1.0 - 0.35 * uSky.x);
             vec3 base = plaster + warm * lit * 1.6;
             base = mix(base, base * 0.08, clamp(dark * 1.15, 0.0, 1.0));
             base = mix(base, gold, clamp(outline, 0.0, 1.0) * (0.55 + 0.4 * uGlow));
             base += warm * fillHint * pool * (1.0 - shadow) * 0.6;
             base = mix(base, vec3(1.0, 0.93, 0.7), uFlash * pool * 0.5);
+            base += moonCol * moonHalo * 0.35 + dawnCol * dawnGlow * 0.5 + vec3(1.0, 0.95, 0.85) * stars * 0.8 + flyCol * flies * 0.9;
+            base = mix(base, moonCol * 0.92, clamp(moon, 0.0, 1.0));
+            base = mix(base, boltCol, bolt * 0.4);
             gl_FragColor = vec4(base, 1.0);
             return;
           }
+          over(col, a, dawnCol, dawnGlow);
+          over(col, a, moonCol, moonHalo * 0.6);
+          over(col, a, moonCol, moon);
+          over(col, a, vec3(1.0, 0.95, 0.85), stars);
+          over(col, a, flyCol, flies);
+          over(col, a, boltCol, bolt * 0.42);
           gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
         }`,
       transparent: true,

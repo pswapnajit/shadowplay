@@ -1,22 +1,26 @@
 /**
  * The game: shows a creature's outline, scores the player's shadow against
  * it, wakes the creature when it matches, and keeps a little menagerie of
- * every creature the player has woken.
+ * every creature the player has woken. In story mode the Lantern tells a
+ * tale and each ask becomes a shadow to make; the creatures who answer
+ * become its cast.
  */
 
 import { createSystem } from '@iwsdk/core';
-import { CREATURES, type CreatureDef } from '../core/creatures.js';
+import { CREATURE_BY_ID, CREATURES, type CreatureDef } from '../core/creatures.js';
 import { J } from '../core/hand-data.js';
 import { type MatchResult, ShapeMatcher, type Target } from '../core/match.js';
 import { RIG_HEIGHT, RIGS, SegWriter } from '../core/rigs.js';
 import { creatureTarget } from '../core/targets.js';
+import type { Action, Ask, CreatureId } from '../story/protocol.js';
 import { audio } from './audio.js';
 import { state, TOLERANCE_IOU } from './state.js';
+import { canFly, StoryMode, type StoryHost } from './story-mode.js';
 import type { TheatreSystem } from './theatre.js';
 import { GhostHand } from './ghost-hand.js';
 import { WallText } from './wall-text.js';
 
-export type Phase = 'idle' | 'intro' | 'seek' | 'awaken' | 'free';
+export type Phase = 'idle' | 'intro' | 'seek' | 'awaken' | 'free' | 'story';
 
 interface Living {
   def: CreatureDef;
@@ -26,7 +30,7 @@ interface Living {
   facing: 1 | -1;
   alpha: number;
   t: number;
-  mode: 'perform' | 'travel' | 'home' | 'leave';
+  mode: 'perform' | 'travel' | 'home' | 'leave' | 'story';
   modeT: number;
   fromX: number;
   fromY: number;
@@ -37,13 +41,31 @@ interface Living {
   action: number;
   nextAction: number;
   visitor: boolean;
+  /** Where it settles after performing: the shelf, or its spot on the story stage. */
+  dest: 'home' | 'stage';
+  /** Story stage spot: x, y, scale. */
+  spot: [number, number, number];
+  /** The stage direction it is acting out, and for how long. */
+  act: Action | null;
+  actT: number;
+  actFrom: number;
+  actTo: number;
+  /** A direction given while it was still arriving. */
+  pending: Action | null;
+  pose: 'stand' | 'sleep' | 'hide' | 'fly';
+  /** 0..1, how far it has risen into the air (fliers). */
+  lift: number;
+  /** Curtain call: walk home to the shelf after the bow. */
+  curtain: boolean;
 }
 
 const SAVE_KEY = 'shadowplay.v1';
 const HOME_Y = -0.6;
 const REST_T: Record<string, number> = { bird: 0.1, rabbit: 0, dog: 0, wolf: 0, fox: 0, swan: 0, crocodile: 0, deer: 0, butterfly: 0 };
+/** Story stage spots along the ground line, filled in this order. */
+const STAGE_X = [-0.55, 0.55, -0.86, 0.86, -0.3, 0.3];
 
-export class GameSystem extends createSystem({}) {
+export class GameSystem extends createSystem({}) implements StoryHost {
   theatre: TheatreSystem | null = null;
   phase: Phase = 'idle';
   private phaseT = 0;
@@ -88,6 +110,13 @@ export class GameSystem extends createSystem({}) {
   /** Draw the player's hands even in XR (director mode, where no real hands are visible). */
   showPlayerHands = false;
 
+  story!: StoryMode;
+  /** Story mode (the default); `?story=off` plays the classic lessons instead. */
+  storyOn = true;
+  private toldThisSession = false;
+  /** Shelf creatures dim while a story is on stage: they become its audience. */
+  private shelfDim = 1;
+
   init(): void {
     for (const c of CREATURES) this.targets.set(c.id, creatureTarget(c));
     this.load();
@@ -101,6 +130,9 @@ export class GameSystem extends createSystem({}) {
     this.playerHands.baseOpacity = 0.55;
     this.playerHands.live = state.hands;
     this.world.createTransformEntity(this.playerHands.root);
+    this.story = new StoryMode(this);
+    this.world.createTransformEntity(this.story.panel.mesh);
+    this.story.onDone = () => this.setPhase('free');
   }
 
   private load(): void {
@@ -126,6 +158,17 @@ export class GameSystem extends createSystem({}) {
     return this.phase === 'seek' ? this.order[this.idx] ?? null : null;
   }
 
+  /** True once the current phase has run for `seconds` (the director's sense of timing). */
+  phaseWaitedFor(seconds: number): boolean {
+    return this.phaseT >= seconds;
+  }
+
+  /** The creature the story is asking for right now (null for "any", or when not asking). */
+  get storyWant(): CreatureDef | null {
+    const a = this.story?.ask;
+    return this.phase === 'story' && this.story.phase === 'asking' && a && a !== 'any' ? CREATURE_BY_ID[a] : null;
+  }
+
   /** Starts (or restarts) the show once the stage exists. */
   private begin(): void {
     // Returning players find their menagerie waiting.
@@ -148,6 +191,7 @@ export class GameSystem extends createSystem({}) {
     this.holdT = 0;
     this.iouSmooth = 0;
     this.lastTickLevel = 0;
+    if (p !== 'story' && this.story.active) this.story.stop();
     const r = this.theatre?.shadows;
     if (p === 'seek' && r) {
       const c = this.order[this.idx];
@@ -156,7 +200,14 @@ export class GameSystem extends createSystem({}) {
     }
     if (p === 'free') {
       r?.setTarget(null);
-      this.caption.show('Free play', 'Make any shadow you like. Your creatures will answer.');
+      this.caption.show('Free play', this.storyOn ? 'Make any shadow. Thumbs up for another story.' : 'Make any shadow you like. Your creatures will answer.');
+    }
+    if (p === 'story') {
+      this.toldThisSession = true;
+      r?.setTarget(null);
+      this.caption.hide();
+      this.title.hide();
+      this.story.start();
     }
   }
 
@@ -170,7 +221,9 @@ export class GameSystem extends createSystem({}) {
 
     // Text sits above the light pool.
     this.title.place(stage, 0, 0.62);
-    this.caption.place(stage, 0, 0.47);
+    // In a story the ask sits higher, clear of tall outlines (the title is hidden then).
+    this.caption.place(stage, 0, this.phase === 'story' ? 0.64 : 0.47);
+    this.story.panel.place(stage, 0, 0.56);
 
     const hasHands = state.handSegCount > 0;
     this.noHandsT = hasHands ? 0 : this.noHandsT + dt;
@@ -183,11 +236,12 @@ export class GameSystem extends createSystem({}) {
         else if (this.phaseT > 1.2) this.caption.show('Raise your hands into the light', 'between the lantern and the wall');
         if (this.phaseT > 3 && this.handsSeenT > 1.5) {
           this.title.hide();
-          this.setPhase(this.idx < 0 ? 'free' : 'seek');
+          // A player who knows at least one creature goes straight to a story.
+          this.setPhase(this.storyOn && this.collected.size > 0 ? 'story' : this.idx < 0 ? 'free' : 'seek');
         }
         break;
       case 'seek':
-        this.tickMatch(dt, false);
+        this.tickMatch(dt, 'seek');
         if (this.phaseT > 20) {
           // Hands-only escape hatch: hold a thumbs-up to skip this creature.
           this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
@@ -210,19 +264,35 @@ export class GameSystem extends createSystem({}) {
       case 'awaken':
         if (this.phaseT > 3.2) {
           this.title.hide();
+          // After the first creature, the Lantern tells its first story.
+          if (this.storyOn && !this.toldThisSession) {
+            this.setPhase('story');
+            break;
+          }
           this.idx = this.nextUncollected(this.idx + 1);
           this.setPhase(this.idx < 0 ? 'free' : 'seek');
         }
         break;
       case 'free':
-        this.tickMatch(dt, true);
-        if (this.phaseT > 6) this.caption.hide();
+        this.tickMatch(dt, 'free');
+        if (this.phaseT > 8) this.caption.hide();
+        if (this.storyOn && this.phaseT > 2.5) {
+          // Hands-only request: hold a thumbs-up for another story.
+          this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
+          if (this.thumbsT > 1.0) this.setPhase('story');
+        }
+        break;
+      case 'story':
+        if (this.story.phase === 'asking') this.tickStoryAsk(dt);
         break;
     }
 
     this.updateMouth();
     this.animate(dt, time);
     this.updateGhost(dt);
+    this.story.update(dt, r.wallMat);
+    this.theatre!.lanternSway[0] = this.story.fx.sway[0];
+    this.theatre!.lanternSway[1] = this.story.fx.sway[1];
 
     // Wall shader uniforms.
     const k = 1 - Math.exp(-dt * 6);
@@ -237,14 +307,15 @@ export class GameSystem extends createSystem({}) {
     this.os += (ts - this.os) * k;
     this.oa += (ta - this.oa) * k;
     if (tm !== this.om) this.om = tm;
-    const visTarget = this.phase === 'seek' ? 1 : 0;
+    const want = this.storyWant;
+    const visTarget = this.phase === 'seek' || want ? 1 : 0;
     this.outlineVis += (visTarget - this.outlineVis) * Math.min(1, dt * 3);
     this.flash = Math.max(0, this.flash - dt * 1.6);
     const u = r.wallMat.uniforms;
     u.uTX.value.set(this.ox, this.oy, this.os, this.oa);
     u.uTMirror.value = this.om;
     u.uTVis.value = this.outlineVis;
-    const thr = this.threshold(this.order[Math.max(0, this.idx)]);
+    const thr = this.threshold(this.phase === 'story' ? want ?? undefined : this.order[Math.max(0, this.idx)]);
     u.uGlow.value = Math.max(0, Math.min(1, (this.iouSmooth - 0.3) / (thr - 0.3)));
     u.uFlash.value = this.flash;
 
@@ -269,7 +340,8 @@ export class GameSystem extends createSystem({}) {
   }
 
   private defaultScale(): number {
-    const t = this.targets.get(this.order[Math.max(0, this.idx)]?.id ?? 'bird');
+    const id = this.phase === 'story' ? this.storyWant?.id ?? 'bird' : this.order[Math.max(0, this.idx)]?.id ?? 'bird';
+    const t = this.targets.get(id);
     return (t?.scale0 ?? 0.25) * (state.magnification / 2.6);
   }
 
@@ -284,9 +356,17 @@ export class GameSystem extends createSystem({}) {
     return (c && c.difficulty === 3 ? base - 0.06 : base) - assist;
   }
 
-  private tickMatch(dt: number, free: boolean): void {
+  /**
+   * Scores the player's shadow. `seek`: against the one creature being
+   * taught. `free`: against the menagerie. `story`: against the creature the
+   * story asked for, though another creature the player knows can answer
+   * instead (it must be unmistakable), or against everyone for "any".
+   */
+  private tickMatch(dt: number, mode: 'seek' | 'free' | 'story'): void {
+    const several = mode !== 'seek';
+    const want = mode === 'story' ? this.storyWant : null;
     this.matchClock += dt;
-    const interval = free ? 1 / 6 : 1 / 12;
+    const interval = several ? 1 / 8 : 1 / 12;
     if (this.matchClock >= interval) {
       this.matchClock = 0;
       let bestIou = 0;
@@ -294,9 +374,14 @@ export class GameSystem extends createSystem({}) {
       let bestRes: MatchResult | null = null;
       let bestDef: CreatureDef | null = null;
       if (state.handSegCount > 0) {
-        const pool = free
-          ? this.order.filter((c) => this.collected.has(c.id) || this.skipped.has(c.id))
-          : [this.order[this.idx]];
+        const pool =
+          mode === 'seek'
+            ? [this.order[this.idx]]
+            : mode === 'free'
+              ? this.order.filter((c) => this.collected.has(c.id) || this.skipped.has(c.id))
+              : want
+                ? [want, ...this.order.filter((c) => c !== want && this.collected.has(c.id))]
+                : this.order;
         for (const c of pool) {
           const res = this.matcher.match(state.handSegs, state.handSegCount, this.targets.get(c.id)!);
           if (res && res.iou > bestIou) {
@@ -309,33 +394,41 @@ export class GameSystem extends createSystem({}) {
           }
         }
       }
-      // In free play an ambiguous shape (two creatures nearly tied) wakes nobody.
-      if (free && bestIou - secondIou < 0.04) bestIou = Math.min(bestIou, 0.45);
-      if (free && bestDef !== this.best) this.iouSmooth *= 0.5;
+      // With several candidates, an ambiguous shape (two creatures nearly tied) wakes nobody.
+      if (several && bestIou - secondIou < 0.04) bestIou = Math.min(bestIou, 0.45);
+      if (several && bestDef !== this.best) this.iouSmooth *= 0.5;
       this.best = bestDef;
       this.iou = bestIou;
       this.last = bestRes;
       this.iouSmooth += (bestIou - this.iouSmooth) * 0.35;
       // rising ticks as the match builds
-      const thr = this.threshold(free ? bestDef ?? undefined : this.order[this.idx]);
+      const target = mode === 'seek' ? this.order[this.idx] : want;
+      const thr = this.threshold(several ? bestDef ?? undefined : this.order[this.idx]);
       const level = Math.floor(Math.max(0, (this.iouSmooth - 0.3) / (thr - 0.3)) * 4);
-      if (!free && level > this.lastTickLevel && level <= 4) audio.tick(level / 4);
+      if (target && bestDef === target && level > this.lastTickLevel && level <= 4) audio.tick(level / 4);
       this.lastTickLevel = level;
     }
-    const def = free ? this.best : this.order[this.idx];
+    const def = mode === 'seek' ? this.order[this.idx] : this.best;
     if (!def) return;
-    if (!free && this.iouSmooth > 0.4) this.struggleT += dt;
-    const thr = this.threshold(def);
+    if ((mode === 'seek' || def === want) && this.iouSmooth > 0.4) this.struggleT += dt;
+    // In a story, an answer other than the one asked for has to be unmistakable.
+    const strict = mode === 'story' && (want ? def !== want : !this.collected.has(def.id));
+    const thr = this.threshold(def) + (strict ? 0.05 : 0);
     if (this.iouSmooth >= thr) this.holdT += dt;
     else this.holdT = Math.max(0, this.holdT - dt * 2);
-    if (this.holdT >= 0.6 && this.last) {
-      if (free && !this.collected.has(def.id)) {
+    if (this.holdT >= (strict ? 0.9 : 0.6) && this.last) {
+      if (mode === 'story') {
+        this.wakeStory(def, this.last);
+        this.holdT = 0;
+        return;
+      }
+      if (mode === 'free' && !this.collected.has(def.id)) {
         // a skipped creature, finally made in free play: it joins for real
         this.wake(def, this.last, false);
         this.holdT = 0;
         return;
       }
-      if (free) {
+      if (mode === 'free') {
         const cd = this.cooldown.get(def.id) ?? 0;
         if (performance.now() / 1000 > cd) {
           this.cooldown.set(def.id, performance.now() / 1000 + 5);
@@ -349,18 +442,8 @@ export class GameSystem extends createSystem({}) {
   }
 
   private wake(def: CreatureDef, m: MatchResult, visitor: boolean): void {
-    const s = Math.max(0.5, Math.min(1.6, m.frame.scale / 0.2));
-    const h = RIG_HEIGHT[def.id] ?? 0.3;
-    // Canonical poses face left; a mirrored match faces right.
-    const facing: 1 | -1 = m.mirror ? 1 : -1;
-    const lv = this.makeLiving(def, m.frame.cx, m.frame.cy - (h * s) / 2, s, facing, 'perform');
-    lv.alpha = 0;
+    const lv = this.spawn(def, m);
     lv.visitor = visitor;
-    this.living.push(lv);
-    this.flash = 1;
-    audio.awaken();
-    audio.song(def.song, 0.15, Math.max(-1, Math.min(1, m.frame.cx)));
-    if (def.id === 'wolf') audio.howl(0.7);
     if (!visitor) {
       this.collected.add(def.id);
       this.save();
@@ -369,6 +452,304 @@ export class GameSystem extends createSystem({}) {
       this.setPhase('awaken');
     }
   }
+
+  /** A creature wakes where the player's shadow was, with a flash and its song. */
+  private spawn(def: CreatureDef, m: MatchResult): Living {
+    const s = Math.max(0.5, Math.min(1.6, m.frame.scale / 0.2));
+    const h = RIG_HEIGHT[def.id] ?? 0.3;
+    // Canonical poses face left; a mirrored match faces right.
+    const facing: 1 | -1 = m.mirror ? 1 : -1;
+    const lv = this.makeLiving(def, m.frame.cx, m.frame.cy - (h * s) / 2, s, facing, 'perform');
+    lv.alpha = 0;
+    this.living.push(lv);
+    this.flash = 1;
+    audio.awaken();
+    audio.song(def.song, 0.15, Math.max(-1, Math.min(1, m.frame.cx)));
+    if (def.id === 'wolf') audio.howl(0.7);
+    return lv;
+  }
+
+  // --- story mode -----------------------------------------------------------------
+
+  /** The answer to an ask: the creature wakes, joins tonight's cast, and the story goes on. */
+  private wakeStory(def: CreatureDef, m: MatchResult): void {
+    const first = !this.collected.has(def.id);
+    // Already in the tale? The newcomer takes its place.
+    const old = this.onStage(def.id as CreatureId);
+    const lv = this.spawn(def, m);
+    lv.dest = 'stage';
+    lv.spot = old ? [...old.spot] : this.stageSpot(def);
+    if (old) this.exit(old, old.x);
+    this.collected.add(def.id);
+    this.save();
+    this.title.show(`${def.name}!`);
+    this.caption.hide();
+    this.theatre?.shadows.setTarget(null);
+    this.story.made(def.id as CreatureId, first);
+  }
+
+  private tickStoryAsk(dt: number): void {
+    const s = this.story;
+    const want = this.storyWant;
+    this.tickMatch(dt, 'story');
+    if (s.phase !== 'asking') return; // a creature just answered
+    let sub = want ? `Make the ${want.name}` : 'Make any shadow you know';
+    if (s.askT > 24) {
+      sub = want && Math.floor(s.askT / 6) % 2 ? want.hint : 'Or hold a thumbs-up to let it go';
+      this.thumbsT = thumbsUp() ? this.thumbsT + dt : 0;
+      if (this.thumbsT > 1.2) {
+        this.thumbsT = 0;
+        this.caption.hide();
+        this.theatre?.shadows.setTarget(null);
+        s.letGo();
+        return;
+      }
+    } else if (want && s.askT > 12) sub = want.hint;
+    if (state.controllersInHand && this.noHandsT > 1) this.caption.show('Put your controllers down', 'Shadowplay is played with your bare hands');
+    else if (this.noHandsT > 6) this.caption.show(s.prompt, 'Raise your hands into the light');
+    else this.caption.show(s.prompt, sub);
+  }
+
+  known(): CreatureId[] {
+    return [...this.collected] as CreatureId[];
+  }
+
+  onAsk(ask: Ask): void {
+    this.iouSmooth = 0;
+    this.holdT = 0;
+    this.struggleT = 0;
+    this.lastTickLevel = 0;
+    this.best = null;
+    this.thumbsT = 0;
+    this.title.hide();
+    const r = this.theatre?.shadows;
+    if (ask !== 'any') r?.setTarget(this.targets.get(ask)!);
+    else r?.setTarget(null);
+    this.caption.show(this.story.prompt, ask !== 'any' ? `Make the ${CREATURE_BY_ID[ask].name}` : 'Make any shadow you know');
+  }
+
+  showTitle(text: string, sub = ''): void {
+    this.caption.hide();
+    this.title.show(text, sub);
+  }
+
+  hideTitle(): void {
+    this.title.hide();
+  }
+
+  private onStage(id: CreatureId): Living | undefined {
+    return this.living.find((l) => l.dest === 'stage' && l.def.id === id && l.mode !== 'leave' && !l.visitor);
+  }
+
+  direct(who: CreatureId, does: Action): boolean {
+    const lv = this.onStage(who);
+    if (!lv) return false;
+    if (lv.mode !== 'story') lv.pending = does; // still arriving: it acts when it gets there
+    else this.startAct(lv, does);
+    return true;
+  }
+
+  curtainCall(): void {
+    let k = 0;
+    for (const lv of this.living) {
+      if (lv.dest !== 'stage' || lv.mode === 'leave' || lv.visitor) continue;
+      lv.curtain = true;
+      if (lv.mode === 'story') {
+        this.startAct(lv, 'bow');
+        lv.actT = -0.35 * k++; // one after another
+      } else lv.pending = 'bow';
+    }
+  }
+
+  /** A free spot on the story stage, along the ground line. */
+  private stageSpot(def: CreatureDef): [number, number, number] {
+    const taken = this.living.filter((l) => l.dest === 'stage' && l.mode !== 'leave' && !l.visitor).map((l) => l.spot[0]);
+    const x = STAGE_X.find((c) => !taken.some((t) => Math.abs(t - c) < 0.14)) ?? STAGE_X[taken.length % STAGE_X.length];
+    const lift = def.id === 'butterfly' ? 0.22 : def.id === 'bird' ? 0.12 : 0;
+    const s = def.id === 'deer' ? 0.6 : def.id === 'crocodile' ? 0.62 : 0.76;
+    return [x, -0.44 + lift, s];
+  }
+
+  private startAct(lv: Living, does: Action): void {
+    lv.act = does;
+    lv.actT = 0;
+    const x = lv.spot[0];
+    switch (does) {
+      case 'walk':
+        lv.actFrom = x;
+        lv.actTo = Math.abs(x) > 0.45 ? x * 0.4 : x >= 0 ? 0.72 : -0.72;
+        lv.pose = 'stand';
+        break;
+      case 'run':
+        lv.actFrom = x;
+        lv.actTo = Math.max(-0.9, Math.min(0.9, Math.abs(x) > 0.2 ? -x * 0.9 : 0.75));
+        lv.pose = 'stand';
+        break;
+      case 'sleep':
+        lv.pose = 'sleep';
+        lv.act = null;
+        break;
+      case 'hide':
+        lv.pose = 'hide';
+        lv.spot[0] = Math.max(-0.95, Math.min(0.95, x + (x >= 0 ? 0.1 : -0.1)));
+        lv.act = null;
+        break;
+      case 'fly':
+        if (canFly(lv.def.id as CreatureId)) {
+          lv.pose = 'fly';
+          lv.act = null;
+        } // the others leap
+        break;
+      case 'look':
+        lv.facing = lv.facing === 1 ? -1 : 1;
+        break;
+      case 'call':
+        if (lv.pose === 'sleep') lv.pose = 'stand';
+        this.callOut(lv.def, lv.x);
+        break;
+      case 'leave':
+        lv.act = null;
+        this.exit(lv, x >= 0 ? 1.45 : -1.45);
+        break;
+      default: // hop, dance, bow
+        if (lv.pose !== 'fly') lv.pose = 'stand';
+    }
+  }
+
+  /** Off it goes (towards `toX`), fading; gone for good afterwards. */
+  private exit(lv: Living, toX: number): void {
+    lv.mode = 'leave';
+    lv.visitor = true;
+    lv.modeT = 0;
+    lv.fromX = lv.x;
+    lv.fromY = lv.y;
+    lv.fromS = lv.s;
+    lv.toX = toX;
+    lv.toY = lv.y;
+    lv.toS = lv.s;
+    if (toX !== lv.x) lv.facing = toX > lv.x ? 1 : -1;
+  }
+
+  /** The curtain call is over: home to the shelf (or, if a twin already lives there, away). */
+  private goHome(lv: Living): void {
+    lv.curtain = false;
+    lv.dest = 'home';
+    lv.act = null;
+    lv.pose = 'stand';
+    const twin = this.living.some((o) => o !== lv && o.def === lv.def && o.mode === 'home' && !o.visitor);
+    const home = this.homeOf(lv.def);
+    if (twin) {
+      this.exit(lv, home[0]);
+      return;
+    }
+    lv.mode = 'travel';
+    lv.modeT = 0;
+    lv.fromX = lv.x;
+    lv.fromY = lv.y;
+    lv.fromS = lv.s;
+    [lv.toX, lv.toY, lv.toS] = home;
+    lv.facing = lv.toX >= lv.x ? 1 : -1;
+  }
+
+  private callOut(def: CreatureDef, x: number): void {
+    const pan = Math.max(-1, Math.min(1, x));
+    if (def.id === 'bird') {
+      audio.chirp(1);
+      setTimeout(() => audio.chirp(1.1), 180);
+    } else if (def.id === 'dog') {
+      audio.bark();
+      setTimeout(() => audio.bark(), 260);
+    } else if (def.id === 'wolf') audio.howl(0.8);
+    else if (def.id === 'crocodile') {
+      audio.snap();
+      setTimeout(() => audio.snap(), 220);
+    } else audio.song(def.song, 0.13, pan);
+  }
+
+  /** One frame of a story creature: its spot, its pose, and whatever it's acting out. */
+  private animateStory(lv: Living, dt: number): void {
+    lv.actT += dt;
+    const [sx, sy, ss] = lv.spot;
+    let x = sx;
+    let y = sy;
+    let s = ss;
+    let gait = 0;
+    let alpha = 1;
+    lv.action = Math.max(0, lv.action - dt * 1.5);
+    lv.lift += ((lv.pose === 'fly' ? 1 : 0) - lv.lift) * Math.min(1, dt * 2);
+    y += lv.lift * (0.2 + 0.02 * Math.sin(lv.modeT * 2.3));
+    if (lv.pose === 'fly') gait = dt * 2.2;
+    if (lv.pose === 'sleep') {
+      alpha = 0.8;
+      s *= 0.97 + 0.012 * Math.sin(lv.modeT * 1.6);
+    }
+    if (lv.pose === 'hide') alpha = 0.3;
+    const k = lv.actT;
+    switch (lv.act) {
+      case 'walk':
+      case 'run': {
+        const dur = lv.act === 'run' ? 1.5 : 2.6;
+        const p = Math.min(1, Math.max(0, k) / dur);
+        const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        x = lv.actFrom + (lv.actTo - lv.actFrom) * e;
+        lv.facing = lv.actTo >= lv.actFrom ? 1 : -1;
+        gait = dt * (lv.act === 'run' ? 2.4 : 1.3);
+        if (lv.act === 'run') y += Math.abs(Math.sin(p * Math.PI * 4)) * 0.02;
+        if (p >= 1) {
+          lv.spot[0] = lv.actTo;
+          lv.act = null;
+        }
+        break;
+      }
+      case 'hop':
+        y += Math.abs(Math.sin((k / 0.55) * Math.PI)) * 0.065;
+        gait = dt;
+        if (k > 1.65) lv.act = null;
+        break;
+      case 'dance':
+        y += Math.abs(Math.sin((k / 0.42) * Math.PI)) * 0.045;
+        lv.facing = Math.floor(k / 0.42) % 2 ? 1 : -1;
+        gait = dt * 1.6;
+        if (k > 2.6) {
+          lv.act = null;
+          lv.facing = sx > 0 ? -1 : 1;
+        }
+        break;
+      case 'fly': // a creature that can't fly leaps
+        y += Math.sin(Math.min(1, k / 0.9) * Math.PI) * 0.16;
+        gait = dt * 1.5;
+        if (k > 0.9) lv.act = null;
+        break;
+      case 'call':
+        lv.action = 0.5 + 0.5 * Math.sin(k * 11);
+        if (k > 1.4) lv.act = null;
+        break;
+      case 'look':
+        if (k > 2.2) {
+          lv.facing = lv.facing === 1 ? -1 : 1;
+          lv.act = null;
+        }
+        break;
+      case 'bow': {
+        const p = Math.min(1, Math.max(0, k) / 1.3);
+        y -= Math.sin(p * Math.PI) * 0.035;
+        lv.action = Math.sin(p * Math.PI);
+        if (k > 1.3) {
+          lv.act = null;
+          if (lv.curtain) this.goHome(lv);
+        }
+        break;
+      }
+    }
+    if (lv.mode !== 'story') return; // went home
+    lv.x = x;
+    lv.y = y;
+    lv.s = s;
+    lv.t += gait;
+    lv.alpha += (alpha - lv.alpha) * Math.min(1, dt * 3);
+  }
+
+  // ---------------------------------------------------------------------------------
 
   private makeLiving(def: CreatureDef, x: number, y: number, s: number, facing: 1 | -1, mode: Living['mode']): Living {
     return {
@@ -390,6 +771,16 @@ export class GameSystem extends createSystem({}) {
       action: 0,
       nextAction: 2 + Math.random() * 4,
       visitor: false,
+      dest: 'home',
+      spot: [x, y, s],
+      act: null,
+      actT: 0,
+      actFrom: x,
+      actTo: x,
+      pending: null,
+      pose: 'stand',
+      lift: 0,
+      curtain: false,
     };
   }
 
@@ -406,6 +797,8 @@ export class GameSystem extends createSystem({}) {
   private animate(dt: number, _time: number): void {
     const w = this.writer;
     w.n = 0;
+    const dimTo = this.phase === 'story' ? 0.3 : 1;
+    this.shelfDim += (dimTo - this.shelfDim) * Math.min(1, dt * 1.5);
     for (const lv of this.living) {
       lv.modeT += dt;
       switch (lv.mode) {
@@ -424,7 +817,7 @@ export class GameSystem extends createSystem({}) {
               lv.toY = lv.y;
               lv.toS = lv.s;
             } else {
-              [lv.toX, lv.toY, lv.toS] = this.homeOf(lv.def);
+              [lv.toX, lv.toY, lv.toS] = lv.dest === 'stage' ? lv.spot : this.homeOf(lv.def);
               lv.facing = lv.toX >= lv.x ? 1 : -1;
             }
           }
@@ -439,13 +832,19 @@ export class GameSystem extends createSystem({}) {
           lv.s = lv.fromS + (lv.toS - lv.fromS) * e;
           lv.t += dt;
           lv.action = 0;
-          if (lv.mode === 'leave') lv.alpha = 1 - Math.max(0, (k - 0.6) / 0.4);
+          if (lv.mode === 'leave') lv.alpha = Math.min(lv.alpha, 1 - Math.max(0, (k - 0.6) / 0.4));
           if (k >= 1) {
-            if (lv.mode === 'leave') lv.alpha = 0;
-            lv.mode = 'home';
+            const leaving = lv.mode === 'leave';
+            if (leaving) lv.alpha = 0;
+            lv.mode = !leaving && lv.dest === 'stage' ? 'story' : 'home';
             lv.modeT = 0;
             lv.t = REST_T[lv.def.id] ?? 0;
+            // face the middle of the stage
             lv.facing = lv.x > 0 ? -1 : 1;
+            if (lv.mode === 'story' && lv.pending) {
+              this.startAct(lv, lv.pending);
+              lv.pending = null;
+            }
           }
           break;
         }
@@ -457,16 +856,20 @@ export class GameSystem extends createSystem({}) {
           if (lv.nextAction < 0) {
             lv.action = 1;
             lv.nextAction = 4 + Math.random() * 6;
-            if (lv.def.id === 'wolf' && Math.random() < 0.35) audio.howl(0.35);
+            if (lv.def.id === 'wolf' && Math.random() < 0.35 && this.phase !== 'story') audio.howl(0.35);
           }
           lv.action = Math.max(0, lv.action - dt * 1.5);
           break;
         }
+        case 'story':
+          this.animateStory(lv, dt);
+          break;
       }
       if (lv.alpha <= 0.01) continue;
       const rig = RIGS[lv.def.id];
       const breathe = lv.mode === 'home' ? 1 + Math.sin(lv.modeT * 2 + lv.x * 7) * 0.012 : 1;
-      w.begin(lv.x, lv.y, lv.s * breathe, lv.facing, lv.alpha);
+      const alpha = lv.mode === 'home' && !lv.visitor ? lv.alpha * this.shelfDim : lv.alpha;
+      w.begin(lv.x, lv.y, lv.s * breathe, lv.facing, alpha);
       rig(w, lv.t, lv.action);
     }
     // drop finished visitors
@@ -477,14 +880,19 @@ export class GameSystem extends createSystem({}) {
   /**
    * The ghost hand teaches the first creature straight away, and steps in
    * for later ones when the player seems stuck. It bows out as soon as the
-   * player's shadow gets close.
+   * player's shadow gets close. In a story it shows creatures the player
+   * hasn't made before.
    */
   private updateGhost(dt: number): void {
-    const c = this.phase === 'seek' ? this.order[this.idx] : null;
-    const firstTime = this.collected.size === 0 && this.phaseT > 1.5;
-    const stuck = this.phaseT > 7 && this.iouSmooth < 0.45;
-    if (c && (this.showGhost || ((firstTime || stuck) && this.iouSmooth < 0.5))) this.ghost.show(c);
-    else this.ghost.hide();
+    const want = this.storyWant;
+    const c = this.phase === 'seek' ? this.order[this.idx] : want;
+    const t = this.phase === 'story' ? this.story.askT : this.phaseT;
+    const firstTime = (want ? !this.collected.has(want.id) : this.collected.size === 0) && t > 1.5;
+    const stuck = t > 7 && this.iouSmooth < 0.45;
+    if (c && (this.showGhost || ((firstTime || stuck) && this.iouSmooth < 0.5))) {
+      this.ghost.show(c);
+      if (want) this.story.helped = true;
+    } else this.ghost.hide();
     this.ghost.update(dt);
     // In the headset the player sees their real hands; on a screen we draw them.
     if ((state.virtualWall || this.showPlayerHands) && state.handSegCount > 0) this.playerHands.show(this.order[0]);
@@ -494,7 +902,8 @@ export class GameSystem extends createSystem({}) {
 
   /** Talking shadows: open the beak to chirp, drop the jaw to bark. */
   private updateMouth(): void {
-    const def = this.phase === 'free' ? this.best : this.phase === 'seek' ? this.order[this.idx] : null;
+    const asking = this.phase === 'story' && this.story.phase === 'asking';
+    const def = this.phase === 'free' || asking ? this.best : this.phase === 'seek' ? this.order[this.idx] : null;
     if (!def || this.iouSmooth < 0.42) {
       this.mouthOpen = false;
       return;
@@ -519,12 +928,15 @@ export class GameSystem extends createSystem({}) {
       else if (def.id === 'dog') audio.bark();
       else if (def.id === 'wolf') audio.howl(0.8);
       else audio.snap();
+      if (asking) this.story.calls++;
     }
     this.mouthOpen = open;
   }
 
   /** Forget the menagerie (menu action). */
   reset(): void {
+    this.story.stop();
+    this.toldThisSession = false;
     this.collected.clear();
     this.skipped.clear();
     this.living = [];

@@ -3,10 +3,15 @@
  * hands so the demo video can be recorded in the XR emulator without a
  * headset. Only the hands are scripted; everything else (matching, waking,
  * the menagerie, sounds) is the real game reacting to them.
+ *
+ * With `?director&story` there is no timeline: the director plays the
+ * tutorial, then answers each of the Lantern's asks live, the way a player
+ * would, while the story itself is told for real.
  */
 
 import { createSystem } from '@iwsdk/core';
 import { CREATURE_BY_ID, type HandSpec } from '../core/creatures.js';
+import type { CreatureId } from '../story/protocol.js';
 import { JOINT_COUNT, type V3 } from '../core/hand-data.js';
 import { OPEN_HAND, REST_RADII, type Side, lerpPose } from '../core/hand-model.js';
 import { placeSpec } from './demo-hands.js';
@@ -95,10 +100,24 @@ function script(): Key[] {
 }
 
 const ease = (x: number) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2);
+const DUR: Record<Beat, number> = { away: 0, raise: 1.0, shape: 2.2, hold: 99, lower: 1.2 };
+
+type Beat = 'away' | 'raise' | 'shape' | 'hold' | 'lower';
 
 export class DirectorSystem extends createSystem({}) {
   theatre: TheatreSystem | null = null;
   game: GameSystem | null = null;
+  /** Answer the Lantern's asks live instead of playing the timeline. */
+  story = false;
+  /** Creatures to make when the Lantern asks for "any", in order. */
+  anyAnswers: CreatureId[] = ['fox', 'crocodile', 'butterfly', 'wolf'];
+  /** Answer the first specific ask with a creature the player already knows instead (the story bends). */
+  surpriseOnce = true;
+  private beat: Beat = 'away';
+  private beatT = 0;
+  private from: HandSpec[] = [];
+  private to: HandSpec[] = [];
+  private holding: string | null = null;
   private keys: Key[] = script();
   private t = -1;
   private until = Infinity;
@@ -116,6 +135,8 @@ export class DirectorSystem extends createSystem({}) {
     if (from === 0) {
       this.theatre?.restartShow();
       this.game?.reset();
+      this.beat = 'away';
+      this.beatT = 0;
     }
     if (this.game) this.game.showPlayerHands = true;
   }
@@ -126,6 +147,11 @@ export class DirectorSystem extends createSystem({}) {
 
   update(delta: number): void {
     if (this.t < 0 || this.t >= this.until) return;
+    if (this.story) {
+      this.t += Math.min(delta, 0.05);
+      this.performStory(Math.min(delta, 0.05));
+      return;
+    }
     this.t = Math.min(this.until, this.t + Math.min(delta, 0.05));
     const t = this.t;
     let i = 0;
@@ -147,6 +173,91 @@ export class DirectorSystem extends createSystem({}) {
       if (!present) continue;
       placeSpec(from, this.joints[side === 'left' ? 0 : 1], to, k);
       h.joints.set(this.joints[side === 'left' ? 0 : 1]);
+      h.radii.set(REST_RADII);
+    }
+    state.handSource = 'demo';
+  }
+
+  /** What the hands do this frame in story mode. */
+  private performStory(dt: number): void {
+    const g = this.game!;
+    const st = g.story;
+    // The creature wanted right now: the tutorial's, or the answer to the Lantern's ask.
+    let want: string | null = null;
+    if (g.phase === 'intro') want = 'rest';
+    else if (g.phase === 'seek' && g.current && g.story.phase === 'off') want = g.phaseWaitedFor(2.4) ? g.current.id : 'rest';
+    else if (g.phase === 'story' && st.phase === 'asking' && st.askT > 1.4) want = this.holding ?? this.choose(st.ask!);
+
+    this.beatT += dt;
+    if (want && (this.beat === 'away' || this.beat === 'lower')) this.go('raise', this.restFor(want));
+    else if (!want && this.beat !== 'away' && this.beat !== 'lower') this.go('lower', []);
+    else if (want && want !== 'rest' && this.beat === 'raise' && this.beatT >= DUR.raise) this.go('shape', c(want));
+    else if (want && want !== 'rest' && this.beat === 'hold' && this.holding !== want) this.go('shape', c(want));
+    else if (this.beat === 'shape' && this.beatT >= DUR.shape) this.go('hold', this.to);
+    else if (this.beat === 'lower' && this.beatT >= DUR.lower) this.go('away', []);
+    this.holding = want && want !== 'rest' ? want : this.beat === 'away' ? null : this.holding;
+
+    let to = this.to;
+    // Talking shadows: open and close the mouth while holding, as a player would.
+    if (this.beat === 'hold' && this.holding && this.beatT > 0.5 && this.beatT < 3) {
+      to = c(this.holding, 0.5 - 0.5 * Math.cos((this.beatT - 0.5) * 5));
+    }
+    const k = this.beat === 'hold' || this.beat === 'away' ? 1 : ease(Math.min(1, this.beatT / DUR[this.beat]));
+    this.place(this.from, to, k);
+    if (this.game) this.game.showGhost = false;
+  }
+
+  private go(beat: Beat, to: HandSpec[]): void {
+    // ease from wherever the hands are now
+    const k = this.beat === 'hold' || this.beat === 'away' ? 1 : ease(Math.min(1, this.beatT / DUR[this.beat]));
+    this.from = this.blendAll(this.from, this.to, k);
+    this.to = to;
+    this.beat = beat;
+    this.beatT = 0;
+  }
+
+  /** Per side, the hand between `a` and `b`; a hand that has gone fully away is dropped. */
+  private blendAll(a: HandSpec[], b: HandSpec[], k: number): HandSpec[] {
+    const out: HandSpec[] = [];
+    for (const side of ['left', 'right'] as Side[]) {
+      const x = a.find((h) => h.side === side);
+      const y = b.find((h) => h.side === side);
+      if (!x && !y) continue;
+      if (!y && k >= 1) continue;
+      out.push(blendSpec(x ?? away(side), y ?? away(side), k));
+    }
+    return out;
+  }
+
+  private restFor(want: string): HandSpec[] {
+    if (want === 'rest') return [rest('right')];
+    return CREATURE_BY_ID[want].hands.length > 1 ? [rest('right'), rest('left')] : [rest('right')];
+  }
+
+  /** Which creature answers this ask. */
+  private choose(ask: string): string {
+    const g = this.game!;
+    if (ask === 'any') return this.anyAnswers.shift() ?? 'bird';
+    if (this.surpriseOnce) {
+      const known = [...g.collected].find((id) => id !== ask);
+      if (known) {
+        this.surpriseOnce = false;
+        return known;
+      }
+    }
+    return ask;
+  }
+
+  private place(from: HandSpec[], to: HandSpec[], k: number): void {
+    for (const side of ['left', 'right'] as Side[]) {
+      const h = side === 'left' ? state.hands[0] : state.hands[1];
+      const a = from.find((s) => s.side === side);
+      const b = to.find((s) => s.side === side);
+      h.tracked = !!(a || b);
+      if (!h.tracked) continue;
+      const joints = this.joints[side === 'left' ? 0 : 1];
+      placeSpec(a ?? away(side), joints, b ?? away(side), k);
+      h.joints.set(joints);
       h.radii.set(REST_RADII);
     }
     state.handSource = 'demo';

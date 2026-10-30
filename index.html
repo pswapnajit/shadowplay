@@ -122,6 +122,45 @@
         color: rgba(255, 241, 214, 0.5);
         font-size: 13px;
       }
+      #book {
+        margin: 18px auto 0;
+        max-width: 520px;
+        text-align: left;
+        color: var(--dim);
+        font-size: 15px;
+      }
+      #book summary {
+        cursor: pointer;
+        text-align: center;
+        color: var(--gold);
+        font-style: italic;
+        list-style: none;
+      }
+      #book summary::-webkit-details-marker {
+        display: none;
+      }
+      #book ol {
+        list-style: none;
+        margin: 10px 0 0;
+        padding: 12px 16px;
+        max-height: 34vh;
+        overflow-y: auto;
+        border-radius: 14px;
+        background: rgba(20, 13, 8, 0.72);
+        border: 1px solid rgba(243, 201, 122, 0.25);
+      }
+      #book li + li {
+        margin-top: 12px;
+      }
+      #book .t {
+        color: var(--cream);
+        font-style: italic;
+      }
+      #book .m {
+        display: block;
+        font-size: 12px;
+        opacity: 0.6;
+      }
     </style>
   </head>
   <body>
@@ -129,12 +168,16 @@
     <div id="landing">
       <div class="card">
         <h1>Shadowplay</h1>
-        <p>Your wall becomes a shadow theatre. A lantern glows over your shoulder; shape your hands until the shadow matches, and it comes alive.</p>
+        <p>Your wall becomes a shadow theatre. A lantern glows over your shoulder and tells you a story, and your hands cast it: shape a shadow and it comes alive to play its part.</p>
         <div class="row">
           <button id="enter-xr" disabled>Checking for a headset…</button>
           <button id="webcam" class="ghost">Try with your webcam</button>
         </div>
-        <small>Best on Meta Quest with hand tracking, seated, facing a wall. No controllers needed.</small>
+        <small>Best on Meta Quest with hand tracking, seated, facing a wall. No controllers needed. Stories are improvised live by Claude.</small>
+        <details id="book" hidden>
+          <summary></summary>
+          <ol></ol>
+        </details>
       </div>
     </div>
     <div id="pip"></div>

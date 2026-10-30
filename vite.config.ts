@@ -7,10 +7,57 @@
 
 import { fileURLToPath } from 'node:url';
 import { iwsdkDev } from '@iwsdk/vite-plugin-dev';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+/**
+ * Serves the story endpoint (api/story.ts on Vercel) from the dev server, so
+ * the Lantern can be tested locally with a key in .env.
+ */
+function storyApi(): Plugin {
+  return {
+    name: 'shadowplay-story-api',
+    apply: 'serve',
+    configureServer(server) {
+      const env = loadEnv(server.config.mode, process.cwd(), '');
+      for (const k of ['ANTHROPIC_API_KEY', 'STORY_MODEL', 'STORY_EFFORT', 'STORY_SECRET', 'STORY_DISABLED']) {
+        if (env[k] && !process.env[k]) process.env[k] = env[k];
+      }
+      process.env.STORY_RATE_PER_HOUR ??= '2000';
+      server.middlewares.use('/api/story', async (req, res) => {
+        try {
+          const { handleStory } = (await server.ssrLoadModule('/server/story.ts')) as typeof import('./server/story');
+          const chunks: Buffer[] = [];
+          for await (const c of req) chunks.push(c as Buffer);
+          // Same origin by construction (this dev server's own page, possibly opened by IP on a headset).
+          const request = new Request('http://localhost/api/story', {
+            method: req.method,
+            headers: { 'content-type': 'application/json', origin: 'http://localhost' },
+            body: req.method === 'POST' ? Buffer.concat(chunks) : undefined,
+          });
+          const response = await handleStory(request);
+          res.statusCode = response.status;
+          response.headers.forEach((v, k) => {
+            if (!k.startsWith('access-control-')) res.setHeader(k, v);
+          });
+          const reader = response.body?.getReader();
+          res.on('close', () => void reader?.cancel().catch(() => {}));
+          while (reader) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(value);
+          }
+          res.end();
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(JSON.stringify({ type: 'error', code: 'unavailable', message: (error as Error).message }));
+        }
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [iwsdkDev()],
+  plugins: [iwsdkDev(), storyApi()],
   server: { host: '0.0.0.0', port: 8081, open: false },
   build: {
     outDir: 'dist',

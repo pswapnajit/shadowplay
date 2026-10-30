@@ -90,6 +90,8 @@ export class TheatreSystem extends createSystem({
   private driftT = 0;
   /** Where the lantern is gliding to after a re-placement. */
   private lampGoal: V3 | null = null;
+  /** The story's wind: the shadows' sway on the wall (metres); the lantern swings the other way. */
+  readonly lanternSway: [number, number] = [0, 0];
 
   init(): void {
     this.shadows = new ShadowRenderer();
@@ -273,6 +275,14 @@ export class TheatreSystem extends createSystem({
     }
     const lit = smooth(0.55, 1, this.arrive);
     this.shadows.wallMat.uniforms.uPool.value.w = lit;
+    if (this.arrive >= 1 && state.stage && (this.lanternSway[0] !== 0 || this.lanternSway[1] !== 0 || this.lampGoal)) {
+      const L = state.stage.lamp;
+      const R = state.stage.wallRight;
+      const U = state.stage.wallUp;
+      const sx = -this.lanternSway[0] * 0.6;
+      const sy = -this.lanternSway[1] * 0.6;
+      this.lantern.position.set(L[0] + R[0] * sx + U[0] * sy, L[1] + R[1] * sx + U[1] * sy, L[2] + R[2] * sx + U[2] * sy);
+    }
 
     // Theatre visuals.
     const showing = state.stage !== null;

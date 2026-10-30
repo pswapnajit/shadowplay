@@ -278,6 +278,187 @@ export class AudioEngine {
     o.stop(t0 + 0.12);
   }
 
+  // --- the story stage ----------------------------------------------------
+
+  private beds = new Map<string, GainNode>();
+  private noiseBuf: AudioBuffer | null = null;
+
+  private noiseLoop(): AudioBufferSourceNode {
+    const ctx = this.ctx!;
+    if (!this.noiseBuf) {
+      const len = ctx.sampleRate * 2;
+      this.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf;
+    src.loop = true;
+    src.loopStart = Math.random();
+    return src;
+  }
+
+  /** An LFO driving `param` around its current value by ±depth. */
+  private lfo(param: AudioParam, freq: number, depth: number, type: OscillatorType = 'sine'): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.value = depth;
+    o.connect(g).connect(param);
+    o.start();
+  }
+
+  /** Weather and night sounds that run until faded out (`level` 0). */
+  bed(name: 'rain' | 'wind' | 'crickets', level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    let g = this.beds.get(name);
+    if (!g) {
+      if (level <= 0) return;
+      g = ctx.createGain();
+      g.gain.value = 0;
+      g.connect(this.master);
+      this.beds.set(name, g);
+      if (name === 'rain') {
+        const hp = ctx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 500;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 4200;
+        const src = this.noiseLoop();
+        src.connect(hp).connect(lp).connect(g);
+        src.start();
+        // heavier drops on a lower band, gusting slowly
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 900;
+        bp.Q.value = 0.8;
+        const gust = ctx.createGain();
+        gust.gain.value = 0.5;
+        this.lfo(gust.gain, 0.09, 0.35);
+        const src2 = this.noiseLoop();
+        src2.connect(bp).connect(gust).connect(g);
+        src2.start();
+      } else if (name === 'wind') {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 520;
+        bp.Q.value = 1.4;
+        this.lfo(bp.frequency, 0.11, 260);
+        const swell = ctx.createGain();
+        swell.gain.value = 0.7;
+        this.lfo(swell.gain, 0.07, 0.3);
+        const src = this.noiseLoop();
+        src.connect(bp).connect(swell).connect(g);
+        src.start();
+      } else {
+        // two crickets: a high tone, trilled, in bursts
+        for (const [f, trill, burst] of [
+          [4500, 27, 0.62],
+          [4920, 31, 0.47],
+        ] as const) {
+          const o = ctx.createOscillator();
+          o.frequency.value = f;
+          const a1 = ctx.createGain();
+          a1.gain.value = 0.5;
+          this.lfo(a1.gain, trill, 0.5, 'square');
+          const a2 = ctx.createGain();
+          a2.gain.value = 0.5;
+          this.lfo(a2.gain, burst, 0.5, 'square');
+          const pan = ctx.createStereoPanner();
+          pan.pan.value = f > 4700 ? 0.6 : -0.5;
+          o.connect(a1).connect(a2).connect(pan).connect(g);
+          o.start();
+        }
+      }
+    }
+    const peak = name === 'rain' ? 0.16 : name === 'wind' ? 0.2 : 0.012;
+    g.gain.setTargetAtTime(Math.max(0, level) * peak, ctx.currentTime, level > 0 ? 0.9 : 0.6);
+  }
+
+  /** Thunder: a crack, then a long low roll. */
+  thunder(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime;
+    this.noiseSweep(2600, 300, 0.35, 0.16);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 170;
+    lp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(0.9, t0 + 0.12);
+    g.gain.setTargetAtTime(0.45, t0 + 0.4, 0.4);
+    g.gain.setTargetAtTime(0.0001, t0 + 1.4, 0.9);
+    const src = this.noiseLoop();
+    src.connect(lp).connect(g).connect(this.master!);
+    src.start(t0);
+    src.stop(t0 + 5);
+  }
+
+  /** A soft chord swell: cool and high for the moon, warm for dawn. */
+  swell(kind: 'moon' | 'dawn'): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime;
+    const notes = kind === 'moon' ? [659.3, 830.6, 987.8, 1318.5] : [261.6, 329.6, 392, 523.3];
+    notes.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      const peak = (kind === 'moon' ? 0.035 : 0.06) / (1 + i * 0.4);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(peak, t0 + 1.4 + i * 0.15);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 5.5);
+      o.connect(g).connect(this.master!);
+      o.start(t0);
+      o.stop(t0 + 5.6);
+    });
+  }
+
+  /** A few high plucks, like light catching on something. */
+  sparkle(n = 5): void {
+    for (let i = 0; i < n; i++) {
+      this.pluck(AudioEngine.degreeToFreq(7 + Math.floor(Math.random() * 6), 523.3), i * 0.11 + Math.random() * 0.05, 0.12, Math.random() * 1.4 - 0.7);
+    }
+  }
+
+  /** Dawn chorus: chirps scattered over a few seconds. */
+  birdsong(): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    for (let i = 0; i < 7; i++) setTimeout(() => this.chirp(0.8 + Math.random() * 0.5), 400 + i * 520 + Math.random() * 300);
+  }
+
+  /**
+   * Lantern-speak: one soft, wordless syllable per word as the narration
+   * appears, so the Lantern seems to murmur the story.
+   */
+  voice(semitones: number, gain = 0.045): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime;
+    const f = 294 * Math.pow(2, semitones / 12);
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f * 1.04, t0);
+    o.frequency.exponentialRampToValueAtTime(f, t0 + 0.06);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + 0.018);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    o.connect(lp).connect(g).connect(this.master!);
+    o.start(t0);
+    o.stop(t0 + 0.18);
+  }
+
   /** Gentle tick while the match is building (pitch rises with the score). */
   tick(level: number): void {
     const ctx = this.ctx;
